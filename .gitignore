@@ -1,0 +1,21 @@
+# venv
+.venv/
+.venv-chatbot/
+venv/
+
+# python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# env / secrets
+.env
+*.env
+
+# logs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
