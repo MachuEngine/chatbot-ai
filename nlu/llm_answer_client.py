@@ -19,7 +19,12 @@ def _model_for_answer() -> str:
 def _client() -> Any:
     if OpenAI is None:
         raise RuntimeError("openai_sdk_not_installed")
-    return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY_missing")
+
+    return OpenAI(api_key=api_key)
 
 
 def _safe_str(x: Any) -> str:
@@ -31,6 +36,59 @@ def _get(slots: Dict[str, Any], key: str) -> Any:
     if isinstance(v, dict) and "value" in v:
         return v.get("value")
     return v
+
+
+def answer_with_openai(
+    *,
+    user_message: str,
+    system_prompt: str = "You are a helpful assistant.",
+    model: Optional[str] = None,
+    temperature: float = 0.3,
+    max_output_tokens: Optional[int] = None,
+    trace_id: Optional[str] = None,
+) -> str:
+    """
+    executor.py 호환용 “단순 답변 생성” 함수.
+
+    - 기존 프로젝트에 이미 있는 llm_answer_client.py를 유지하면서
+      executor가 import하는 함수명(answer_with_openai)을 제공한다.
+    - 내부 호출은 기존과 동일하게 chat.completions.create 사용.
+    """
+    enable = (os.getenv("OPENAI_ENABLE_LLM") or "").strip() == "1"
+    if not enable:
+        raise RuntimeError("OPENAI_ENABLE_LLM_disabled")
+
+    m = (model or _model_for_answer()).strip()
+
+    log_event(
+        trace_id,
+        "llm_answer_call",
+        {"model": m, "user_len": len(user_message), "sys_len": len(system_prompt), "temperature": temperature},
+    )
+
+    c = _client()
+
+    # max_output_tokens는 SDK/엔드포인트/버전에 따라 파라미터명이 다를 수 있어
+    # 네가 지금 쓰는 chat.completions에서는 max_tokens가 일반적.
+    kwargs: Dict[str, Any] = {}
+    if max_output_tokens is not None:
+        kwargs["max_tokens"] = int(max_output_tokens)
+
+    resp = c.chat.completions.create(
+        model=m,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        temperature=float(temperature),
+        **kwargs,
+    )
+
+    text = resp.choices[0].message.content if resp and resp.choices else ""
+    text = (text or "").strip()
+
+    log_event(trace_id, "llm_answer_ok", {"model": m, "text_len": len(text)})
+    return text
 
 
 def generate_text_with_llm(kind: str, slots: Dict[str, Any], trace_id: Optional[str] = None) -> str:
@@ -70,7 +128,6 @@ def generate_text_with_llm(kind: str, slots: Dict[str, Any], trace_id: Optional[
 
     user = ""
     if kind == "edu_explain_concept":
-        # topic이 있으면 topic 우선, 없으면 question에서 추출한 것처럼 설명
         target = topic.strip() or question.strip()
         user = f"개념을 설명해줘.\n주제: {target}\n조건: 초등~중등 수준으로 6~10문장."
     elif kind == "edu_ask_question":
@@ -99,10 +156,19 @@ def generate_text_with_llm(kind: str, slots: Dict[str, Any], trace_id: Optional[
         style = _safe_str(_get(slots, "style") or "자연스럽게")
         user = f"다음 문장을 {style} 다시 써줘:\n{question}"
     else:
-        # kind 미지원이면 여기서 바로 에러 내서 executor가 fail로 치환하게 함
         raise RuntimeError(f"unsupported_kind:{kind}")
 
-    log_event(trace_id, "edu_llm_call", {"model": model, "kind": kind, "question_len": len(question), "content_len": len(content), "student_answer_len": len(student_answer)})
+    log_event(
+        trace_id,
+        "edu_llm_call",
+        {
+            "model": model,
+            "kind": kind,
+            "question_len": len(question),
+            "content_len": len(content),
+            "student_answer_len": len(student_answer),
+        },
+    )
 
     # ---- call OpenAI ----
     c = _client()

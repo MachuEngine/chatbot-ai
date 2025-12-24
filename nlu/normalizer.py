@@ -1,20 +1,25 @@
 # nlu/normalizer.py
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Dict, Optional
 
 from utils.logging import log_event
-from nlu.followup import is_followup, _REFERENTIAL_PAT  # _REFERENTIAL_PAT 재사용
+from nlu.followup import is_followup
+
 
 def _now_ts() -> float:
     return time.time()
 
+
 def _safe_dict(x: Any) -> Dict[str, Any]:
     return x if isinstance(x, dict) else {}
 
+
 def _safe_str(x: Any) -> str:
     return x if isinstance(x, str) else "" if x is None else str(x)
+
 
 def _merge_dict(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -28,16 +33,23 @@ def _merge_dict(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
         out[k] = v
     return out
 
+
 def _slot_value(slot: Any) -> Any:
     # {"value":..., "confidence":...} -> value
     if isinstance(slot, dict) and "value" in slot:
         return slot.get("value")
     return slot
 
+
 def _slot_conf(slot: Any) -> float:
-    if isinstance(slot, dict) and "confidence" in slot and isinstance(slot.get("confidence"), (int, float)):
+    if (
+        isinstance(slot, dict)
+        and "confidence" in slot
+        and isinstance(slot.get("confidence"), (int, float))
+    ):
         return float(slot.get("confidence"))
     return 0.0
+
 
 def _has_nonempty(v: Any) -> bool:
     if v is None:
@@ -48,22 +60,28 @@ def _has_nonempty(v: Any) -> bool:
         return len(v) > 0
     return True
 
-def _normalize_text_for_match(s: str) -> str:
-    # 토픽 근거성 체크용: 공백/개행 단순 정리
-    return re.sub(r"\s+", " ", s.strip())
 
 def _last_bot_action(state: Optional[Dict[str, Any]]) -> str:
     if isinstance(state, dict):
         return _safe_str(state.get("last_bot_action"))
     return ""
 
-# ---------
-# 정책 키들
-# ---------
+
+# ----------------------------
+# education 정책 키들
+# ----------------------------
+
 # education에서 "유지해도 되는 사용자 선호" 슬롯들
 EDU_PREFERENCE_KEYS = {
-    "level", "subject", "style", "include_examples", "example_type", "language", "length", "tone",
-    # 너가 주석으로 남겼던 것처럼 target_improvements는 선호/요구에 가깝게 유지하는 편이 안전
+    "level",
+    "subject",
+    "style",
+    "include_examples",
+    "example_type",
+    "language",
+    "length",
+    "tone",
+    # 요구/선호 성격이라 유지하는 편이 안전
     "target_improvements",
 }
 
@@ -72,51 +90,34 @@ EDU_CONTEXT_KEYS = {
     "topic",
 }
 
-# -----
-# 중요: 여기서만 import (re) 사용
-# -----
-import re
+# (선택) 메시지에서 topic 근거성을 더 세게 보는 경우 쓸 수 있는 패턴
+# 지금은 "topic 문자열이 메시지에 직접 등장"만 근거로 인정(오염 방지 우선).
+# 필요하면 여기에 규칙을 추가하되, 오탐으로 topic이 부활하지 않게 매우 보수적으로.
+_TOPIC_GROUNDED_MINLEN = 2  # 토픽이 너무 짧으면 근거 판단이 불안정하니 최소 길이
 
 
-def _should_keep_new_topic_when_not_followup(
-    user_message: str,
-    topic_new_val: Any,
-    slots_in: Dict[str, Any],
-) -> bool:
+def _should_keep_new_topic_when_not_followup(user_message: str, topic_new_val: Any) -> bool:
     """
     followup == False 인 상황에서,
-    NLU가 새 topic을 넣어도 '근거가 있으면' 유지, 없으면 제거.
+    NLU가 topic을 넣었더라도 '사용자 메시지에 근거가 있을 때만' 유지.
 
-    근거 기준(보수적으로):
-    - 지시/참조(그거/이거/방금/아까/이어서...)가 있으면 문맥 참조 가능성이 있으니 유지
-    - user_message 텍스트에 topic 문자열이 직접 포함되면 유지
-    - include_examples 등과 같이 명시적 교육 요청 패턴이 있고 topic도 같이 들어온 경우는 유지 (옵션)
-      (여기서는 최소 규칙만 적용)
+    ✅ 오염 방지 우선:
+    - 지시/참조(이거/그거)만으로는 topic을 살리지 않음
+    - topic 문자열이 user_message 안에 '직접' 등장할 때만 유지
     """
     msg = (user_message or "").strip()
     if not msg:
         return False
 
-    # 1) 지시/참조 표현이 있으면 토픽 유지 가능성 ↑
-    if _REFERENTIAL_PAT.search(msg):
-        return True
-
-    # 2) topic이 문자열이고, 메시지에 직접 등장하면 유지
     t = topic_new_val
-    if isinstance(t, str):
-        t = t.strip()
-        if t:
-            # 단순 포함 매칭(너무 빡세게 하면 오탐 줄지만 미탐 늘어남)
-            if t in msg:
-                return True
+    if not isinstance(t, str):
+        return False
+    t = t.strip()
+    if len(t) < _TOPIC_GROUNDED_MINLEN:
+        return False
 
-    # 3) (선택) 메시지에 '무슨 뜻/뭐야/설명' 패턴이 있고, topic이 들어왔으면 유지
-    #    -> 이건 LLM 오염을 살릴 수도 있어서 기본은 OFF.
-    # explain_like = bool(re.search(r"(뭐야|무슨 뜻|뜻이 뭐|설명|알려줘)", msg))
-    # if explain_like and _has_nonempty(t):
-    #     return True
-
-    return False
+    # 단순 포함(보수적) — 필요하면 정규화/형태소까지 가야하지만 일단 오염 방지에 유리
+    return t in msg
 
 
 def apply_session_rules(
@@ -128,25 +129,25 @@ def apply_session_rules(
     """
     목적:
     - 세션 누적 슬롯/정책 보정(특히 education topic carry 정책)
-    - 핵심 변경점:
+
+    핵심:
       1) education에서 followup == False일 때는 prev_topic을 끊는다.
-      2) 또한 followup == False일 때, NLU가 새 topic을 넣어도 '메시지 근거성'이 없으면 topic을 제거한다.
-      3) merge 전략을 context/preference로 분리해서 실수 여지를 줄인다.
+      2) followup == False일 때, NLU가 topic을 넣어도 '메시지 근거성'이 없으면 제거한다.
+      3) education은 merge를 preference/context/other로 분리해서 실수(토픽 부활) 여지를 줄인다.
     """
     st = _safe_dict(state)
     n = _safe_dict(nlu)
 
-    domain = _safe_str(n.get("domain") or st.get("current_domain"))
-    intent = _safe_str(n.get("intent") or st.get("active_intent"))
+    domain = _safe_str(n.get("domain") or st.get("current_domain")).strip()
+    intent = _safe_str(n.get("intent") or st.get("active_intent")).strip()
 
     slots_in = _safe_dict(n.get("slots"))
     prev_slots = _safe_dict(st.get("slots"))
 
     # ----------------------------
-    # 도메인별 기본 처리
+    # education 이외: 기존 방식 유지
     # ----------------------------
     if domain != "education":
-        # 기존 로직: prev + in (in 우선)
         merged_slots = _merge_dict(prev_slots, slots_in)
         out = dict(n)
         out["domain"] = domain
@@ -160,8 +161,9 @@ def apply_session_rules(
     follow, meta = is_followup(user_message=user_message, state=st, trace_id=trace_id)
 
     # education merge 전략:
-    # - preference 키는 prev 유지 + in으로 업데이트 (in 우선)
-    # - context 키는 followup 여부에 따라 별도 처리
+    # - preference 키: prev 유지 + 이번 턴 업데이트(in 우선)
+    # - other 키: prev 유지 + 이번 턴 업데이트(in 우선)
+    # - context(topic): 아래에서 followup 정책으로 별도 처리
     merged_slots: Dict[str, Any] = {}
 
     # 1) preference merge
@@ -169,8 +171,7 @@ def apply_session_rules(
     in_pref = {k: v for k, v in slots_in.items() if k in EDU_PREFERENCE_KEYS}
     merged_slots = _merge_dict(prev_pref, in_pref)
 
-    # 2) non-edu-special keys (question 같은 것들) 은 "이번 턴 우선"으로 합쳐줌
-    #    (topic은 아래에서 별도 처리)
+    # 2) other merge (topic 제외)
     special_keys = EDU_PREFERENCE_KEYS.union(EDU_CONTEXT_KEYS)
     prev_other = {k: v for k, v in prev_slots.items() if k not in special_keys}
     in_other = {k: v for k, v in slots_in.items() if k not in special_keys}
@@ -188,13 +189,12 @@ def apply_session_rules(
 
     if not follow:
         # followup이 아니면 기본적으로 topic을 끊는다.
-        # 단, NLU가 새 topic을 뽑았더라도 "메시지 근거성" 없으면 제거한다.
+        # 단, 이번 턴 topic이 "사용자 메시지 근거"가 있으면 그 토픽은 유지 가능.
         keep_new = False
         if "topic" in slots_in and _has_nonempty(topic_new_val):
             keep_new = _should_keep_new_topic_when_not_followup(
                 user_message=user_message,
                 topic_new_val=topic_new_val,
-                slots_in=slots_in,
             )
 
         if keep_new:
@@ -218,22 +218,23 @@ def apply_session_rules(
             merged_slots["topic"] = topic_slot_new
             policy_action = "carry_context_use_new"
 
-    # ----------------------------
-    # 디버그/로그
-    # ----------------------------
-    log_event(trace_id, "edu_context_policy", {
-        "domain": domain,
-        "intent": intent,
-        "followup": follow,
-        "followup_meta": meta,
-        "policy_action": policy_action,
-        "topic_prev": topic_prev_val,
-        "topic_new": topic_new_val,
-        "topic_new_conf": topic_new_conf,
-        "slots_in_keys": list(slots_in.keys()),
-        "slots_out_keys": list(merged_slots.keys()),
-        "last_bot_action": _last_bot_action(st),
-    })
+    log_event(
+        trace_id,
+        "edu_context_policy",
+        {
+            "domain": domain,
+            "intent": intent,
+            "followup": follow,
+            "followup_meta": meta,
+            "policy_action": policy_action,
+            "topic_prev": topic_prev_val,
+            "topic_new": topic_new_val,
+            "topic_new_conf": topic_new_conf,
+            "slots_in_keys": list(slots_in.keys()),
+            "slots_out_keys": list(merged_slots.keys()),
+            "last_bot_action": _last_bot_action(st),
+        },
+    )
 
     out = dict(n)
     out["domain"] = domain

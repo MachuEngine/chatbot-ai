@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Dict
 
 TEMPLATES: Dict[str, str] = {
-    "fallback.mvp": "아직 해당 기능은 MVP에 없습니다.",
+    "fallback.mvp": "해당 기능은 지원하지 않아요. 다른 요청을 해주세요.",
 
     # ask_slot
     "ask.slot.item_name": "어떤 메뉴로 도와드릴까요?",

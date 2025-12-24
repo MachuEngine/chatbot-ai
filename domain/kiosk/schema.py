@@ -66,11 +66,14 @@ KIOSK_SCHEMA = {
             "required_slots": ["item_name"],
             "optional_slots": ["option_groups", "quantity"]
         },
+
+        # ✅ 추천: 주문 옵션(temperature)과 혼동 방지 위해 temperature_hint로 분리 권장
         "ask_recommendation": {
             "group": "info",
             "required_slots": [],
-            "optional_slots": ["category", "budget_max", "dietary", "spicy_level", "temperature"]
+            "optional_slots": ["category", "budget_max", "dietary", "spicy_level", "temperature_hint"]
         },
+
         "ask_order_status": {
             "group": "info",
             "required_slots": ["order_ref"],
@@ -90,6 +93,7 @@ KIOSK_SCHEMA = {
         "item_name": {"type": "string", "values_source": "catalog_db", "max_len": 80},
         "quantity": {"type": "integer", "min": 1, "max": 20},
 
+        # ✅ option_groups는 array[{group,value}] 유지 추천
         "option_groups": {
             "type": "array",
             "max_items": 12,
@@ -143,6 +147,11 @@ KIOSK_SCHEMA = {
 
         # optional recommendation hints (업종 중립)
         "spicy_level": {"type": "enum", "values": ["none", "mild", "medium", "hot"]},
+
+        # ✅ 주문 옵션으로서의 온도
         "temperature": {"type": "enum", "values": ["hot", "iced"]},
+
+        # ✅ 추천 제약(선호)으로서의 온도 힌트
+        "temperature_hint": {"type": "enum", "values": ["hot", "iced"]},
     },
 }
