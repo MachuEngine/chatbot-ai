@@ -1,116 +1,489 @@
 # nlu/llm_client.py
 from __future__ import annotations
-import re
-from typing import Dict, Any, Optional, Tuple
 
-NUM_MAP = {
-    "한": 1, "하나": 1, "한잔": 1, "한 잔": 1, "한개": 1, "한 개": 1,
-    "두": 2, "둘": 2, "두잔": 2, "두 잔": 2, "두개": 2, "두 개": 2,
-    "세": 3, "셋": 3, "세잔": 3, "세 잔": 3, "세개": 3, "세 개": 3,
-}
+import os
+import json
+from typing import Dict, Any, List, Optional, Set
 
-def _extract_quantity(text: str) -> Optional[int]:
-    # 1) 숫자 패턴 (예: 1개, 2잔)
-    m = re.search(r"(\d+)\s*(개|잔)?", text)
-    if m:
+import requests
+
+# Optional project logger
+try:
+    from utils.logging import log_event  # type: ignore
+except Exception:  # pragma: no cover
+    log_event = None  # type: ignore
+
+from domain.kiosk.schema import KIOSK_SCHEMA
+from domain.education.schema import EDUCATION_SCHEMA
+
+
+# =========================
+# 0) Minimal fallback (keep service alive)
+# =========================
+def _minimal_fallback_nlu(req) -> Dict[str, Any]:
+    msg = (getattr(req, "user_message", "") or "").strip()
+    meta = getattr(req, "meta", None)
+    mode = (getattr(meta, "mode", "") or "").lower()
+
+    domain = "education" if mode in ("edu", "education") else "kiosk"
+
+    if domain == "education":
+        return {
+            "domain": "education",
+            "intent": "ask_question",
+            "intent_confidence": 0.1,
+            "slots": {"question": {"value": msg, "confidence": 0.1}},
+        }
+
+    return {
+        "domain": "kiosk",
+        "intent": "fallback",
+        "intent_confidence": 0.1,
+        "slots": {},
+    }
+
+
+# =========================
+# 1) Schema helpers
+# =========================
+def _schema_for_domain(domain: str) -> Dict[str, Any]:
+    d = (domain or "").strip().lower()
+    if d == "education":
+        return EDUCATION_SCHEMA
+    return KIOSK_SCHEMA
+
+
+def _domains_from_candidates(candidates: List[Dict[str, Any]]) -> List[str]:
+    ds: Set[str] = set()
+    for c in candidates:
+        d = (c.get("domain") or "").strip().lower()
+        if d:
+            ds.add(d)
+    return sorted(ds) or ["kiosk"]
+
+
+def _intents_from_candidates(candidates: List[Dict[str, Any]]) -> List[str]:
+    its: Set[str] = set()
+    for c in candidates:
+        it = (c.get("intent") or "").strip()
+        if it:
+            its.add(it)
+    return sorted(its) or ["fallback"]
+
+
+def build_domain_intent_schema(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    1차: domain/intent만 강제하는 strict schema
+    """
+    domains = _domains_from_candidates(candidates)
+    intents = _intents_from_candidates(candidates)
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "domain": {"type": "string", "enum": domains},
+            "intent": {"type": "string", "enum": intents},
+            "intent_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+        "required": ["domain", "intent", "intent_confidence"],
+    }
+
+
+def _slot_value_schema(slot_name: str, domain: str) -> Dict[str, Any]:
+    """
+    strict json_schema 제약을 피하기 위해:
+    - object(any) 같은 걸 피하고
+    - 기본은 string/null
+    - 숫자/리스트가 확실한 것만 구체화
+    """
+    s = (slot_name or "").strip()
+
+    # 공통적으로 자주 쓰는 숫자 슬롯
+    if s in ("quantity", "quantity_delta"):
+        return {"type": ["integer", "null"]}
+
+    # kiosk에서 option_groups는 리스트 구조로 두는 게 실용적
+    if s == "option_groups":
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "group": {"type": "string"},
+                    "value": {"type": ["string", "integer", "number", "boolean", "null"]},
+                },
+                "required": ["group", "value"],
+            },
+        }
+
+    # education에서 흔한 텍스트 슬롯
+    if domain == "education":
+        if s in ("question", "content", "text", "prompt"):
+            return {"type": ["string", "null"]}
+
+    # 기본은 string/null (strict에서 가장 안전)
+    return {"type": ["string", "null"]}
+
+
+def _intent_slot_names(domain_schema: Dict[str, Any], intent: str) -> List[str]:
+    intents = domain_schema.get("intents") or {}
+    it = intents.get(intent) or {}
+    req = it.get("required_slots") or []
+    opt = it.get("optional_slots") or []
+    # 순서 안정화
+    return sorted(set([*req, *opt]))
+
+
+def build_slots_schema(domain: str, intent: str, domain_schema: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    2차: slots를 array로 받고, value는 oneOf 없이 '다중 필드'로 표현
+    - OpenAI strict subset에서 oneOf가 막히는 경우가 있어 안전하게 우회
+    - 각 슬롯은 아래 필드 중 '하나만' 채우도록 프롬프트에서 강제
+    """
+    slot_names = _intent_slot_names(domain_schema, intent)
+
+    option_group_item = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "group": {"type": "string"},
+            "value": {"type": ["string", "integer", "number", "boolean", "null"]},
+        },
+        "required": ["group", "value"],
+    }
+
+    slot_item_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "name": {"type": "string", "enum": slot_names},
+
+            # ✅ oneOf 대신 "여러 value 필드" (모두 required, 대신 null 허용)
+            "value_str": {"type": ["string", "null"]},
+            "value_int": {"type": ["integer", "null"]},
+            "value_num": {"type": ["number", "null"]},
+            "value_bool": {"type": ["boolean", "null"]},
+            "value_option_groups": {
+                "type": ["array", "null"],
+                "items": option_group_item,
+            },
+
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+        # ✅ 여기서도 required는 전부 포함(엄격 요구 회피)
+        "required": [
+            "name",
+            "value_str", "value_int", "value_num", "value_bool", "value_option_groups",
+            "confidence",
+        ],
+    }
+
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "slots": {
+                "type": "array",
+                "items": slot_item_schema,
+            }
+        },
+        "required": ["slots"],
+    }
+
+
+
+
+# =========================
+# 2) OpenAI Responses API call (Structured Outputs)
+# =========================
+OPENAI_API_URL = "https://api.openai.com/v1/responses"
+
+
+def _parse_responses_json(resp_json: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Responses API output에서 JSON(text)을 최대한 안전하게 추출
+    """
+    # 일부 환경에서 output_text가 제공될 수 있음
+    if isinstance(resp_json.get("output_text"), str) and resp_json["output_text"].strip():
+        return json.loads(resp_json["output_text"].strip())
+
+    output = resp_json.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for c in content:
+                if not isinstance(c, dict):
+                    continue
+                if isinstance(c.get("text"), str) and c["text"].strip():
+                    return json.loads(c["text"].strip())
+
+    raise ValueError("Could not parse Responses output JSON")
+
+
+def _openai_call_json_schema(
+    *,
+    model: str,
+    system: str,
+    user_obj: Dict[str, Any],
+    schema_name: str,
+    json_schema: Dict[str, Any],
+    api_key: str,
+    timeout: int = 20,
+) -> Dict[str, Any]:
+    payload = {
+        "model": model,
+        "input": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(user_obj, ensure_ascii=False)},
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": schema_name,          # ✅ required
+                "strict": True,
+                "schema": json_schema,
+            }
+        },
+        "store": False,
+    }
+
+    r = requests.post(
+        OPENAI_API_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        data=json.dumps(payload),
+        timeout=timeout,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"OpenAI error {r.status_code}: {r.text[:1200]}")
+    return _parse_responses_json(r.json())
+
+
+def _safe_meta_dump(meta: Any) -> Any:
+    if meta is None:
+        return None
+    if hasattr(meta, "model_dump"):
         try:
-            q = int(m.group(1))
-            if 1 <= q <= 20:
-                return q
-        except ValueError:
-            pass
+            return meta.model_dump()
+        except Exception:
+            return str(meta)
+    return str(meta)
 
-    # 2) 한글 수사
-    for k, v in NUM_MAP.items():
-        if k in text:
-            return v
-    return None
 
-def _extract_item_name(text: str) -> Optional[str]:
-    # MVP: 카페 예시 품목만 최소로
-    # (나중에 store_id catalog_db로 확장하면 여기 제거)
-    items = [
-        "아메리카노", "라떼", "카페라떼", "카푸치노", "바닐라라떼",
-        "콜드브루", "에스프레소",
-    ]
-    for it in items:
-        if it in text:
-            return it
-    return None
+def _openai_nlu_two_stage(req, state: Dict[str, Any], candidates: List[Dict[str, Any]], trace_id: Optional[str]) -> Dict[str, Any]:
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is empty")
 
-def _extract_option_groups(text: str) -> list[dict]:
-    t = text.lower()
-    og = []
+    model = os.getenv("OPENAI_NLU_MODEL", "gpt-4o-mini").strip()
 
-    # temperature
-    if "아이스" in text or "ice" in t:
-        og.append({"group": "temperature", "value": "ice"})
-    elif "뜨거" in text or "따뜻" in text or "hot" in t:
-        og.append({"group": "temperature", "value": "hot"})
+    msg = (getattr(req, "user_message", "") or "").strip()
+    meta = getattr(req, "meta", None)
 
-    # size
-    for s in ["tall", "grande", "venti"]:
-        if s in t:
-            og.append({"group": "size", "value": s})
-            break
+    # 공통 컨텍스트(두 호출에 동일 제공)
+    base_user = {
+        "user_message": msg,
+        "meta": _safe_meta_dump(meta),
+        "state_summary": {
+            "turn_index": state.get("turn_index"),
+            "current_domain": state.get("current_domain"),
+            "active_intent": state.get("active_intent"),
+            "last_bot_action": state.get("last_bot_action"),
+            "slots": state.get("slots"),
+        },
+        "candidates": candidates,
+    }
 
-    # shots (예: 샷 추가 2 / 샷 1추가)
-    m = re.search(r"샷\s*(추가)?\s*(\d+)", text)
-    if m:
-        og.append({"group": "shots", "value": m.group(2)})
+    # -----------------
+    # Stage 1) domain/intent
+    # -----------------
+    system1 = (
+        "You are an NLU router. "
+        "Choose the best (domain, intent) ONLY from the given candidates. "
+        "Be conservative. Do not invent new domains or intents."
+    )
+    schema1 = build_domain_intent_schema(candidates)
 
-    # takeout
-    if "포장" in text or "테이크아웃" in text or "takeout" in t:
-        og.append({"group": "takeout", "value": "true"})
-    elif "매장" in text or "여기서" in text:
-        og.append({"group": "takeout", "value": "false"})
+    out1 = _openai_call_json_schema(
+        model=model,
+        system=system1,
+        user_obj=base_user,
+        schema_name="nlu_route",
+        json_schema=schema1,
+        api_key=api_key,
+        timeout=20,
+    )
 
-    return og
+    domain = (out1.get("domain") or "").strip().lower()
+    intent = (out1.get("intent") or "").strip()
+    intent_conf = float(out1.get("intent_confidence") or 0.0)
 
-def nlu_with_llm(req, state: Dict[str, Any], candidates: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    지금은 더미 규칙 기반.
-    - mode=kiosk면 add_item / ask_store_info 정도만 MVP로 처리
-    - 나중에 OpenAI JSON 출력으로 교체
-    """
-    text = req.user_message.strip()
-    lower = text.lower()
+    if log_event and trace_id:
+        log_event(trace_id, "nlu_openai_stage1_ok", {
+            "model": model,
+            "domain": domain,
+            "intent": intent,
+            "intent_confidence": intent_conf,
+        })
 
-    # 도메인 고정
-    domain = candidates.get("domain", "general")
+    # -----------------
+    # Stage 2) slots for chosen domain/intent
+    # -----------------
+    domain_schema = _schema_for_domain(domain)
 
-    # kiosk 아닌 경우 fallback
-    if domain != "kiosk":
-        return {"domain": domain, "intent": "fallback", "intent_confidence": 0.2, "slots": {}}
-
-    # store info
-    if ("와이파이" in text) or ("wifi" in lower):
+    # intent가 해당 도메인 스키마에 없으면 슬롯 추출 스킵(validator가 처리)
+    if intent not in (domain_schema.get("intents") or {}):
         return {
-            "domain": "kiosk",
-            "intent": "ask_store_info",
-            "intent_confidence": 0.9,
-            "slots": {
-                "info_type": {"value": "wifi", "confidence": 0.9}
-            }
+            "domain": domain or "kiosk",
+            "intent": intent or "fallback",
+            "intent_confidence": max(min(intent_conf, 1.0), 0.0),
+            "slots": {},
         }
 
-    # add_item (주문)
-    item = _extract_item_name(text)
-    qty = _extract_quantity(text) or 1
-    og = _extract_option_groups(text)
+    schema2 = build_slots_schema(domain, intent, domain_schema)
 
-    # 주문 키워드가 있거나 item을 찾았으면 add_item으로 본다
-    if item or ("주세요" in text) or ("주문" in text) or ("할게" in text):
-        return {
-            "domain": "kiosk",
-            "intent": "add_item",
-            "intent_confidence": 0.85 if item else 0.6,
-            "slots": {
-                "item_name": {"value": item, "confidence": 0.9 if item else 0.2},
-                "quantity": {"value": qty, "confidence": 0.8},
-                "option_groups": {"value": og, "confidence": 0.7 if og else 0.2},
-                "notes": {"value": None, "confidence": 0.0},
-            }
-        }
+    system2 = (
+        "You are an NLU slot extractor.\n"
+        "Return slots as an array of objects.\n"
+        "IMPORTANT: For each slot item, fill EXACTLY ONE of these fields and set all others to null:\n"
+        "- value_str, value_int, value_num, value_bool, value_option_groups\n"
+        "Use value_option_groups ONLY when the slot name is 'option_groups'.\n"
+        "If unknown, set all value_* fields to null and confidence low.\n"
+        "Never invent facts."
+    )
 
-    return {"domain": "kiosk", "intent": "fallback", "intent_confidence": 0.2, "slots": {}}
+
+    # 2차에선 (domain,intent)을 명시적으로 알려주면 hallucination이 더 줄어듦
+    user2 = {
+        **base_user,
+        "chosen": {"domain": domain, "intent": intent},
+        "slot_spec": {
+            "required_slots": (domain_schema.get("intents", {}).get(intent, {}) or {}).get("required_slots") or [],
+            "optional_slots": (domain_schema.get("intents", {}).get(intent, {}) or {}).get("optional_slots") or [],
+        },
+    }
+
+    out2 = _openai_call_json_schema(
+        model=model,
+        system=system2,
+        user_obj=user2,
+        schema_name="nlu_slots",
+        json_schema=schema2,
+        api_key=api_key,
+        timeout=20,
+    )
+
+    raw_slots = out2.get("slots")
+    slots: Dict[str, Any] = {}
+
+    def _pick_value(item: Dict[str, Any]):
+        # option_groups 우선
+        if item.get("value_option_groups") is not None:
+            return item.get("value_option_groups")
+        for k in ("value_str", "value_int", "value_num", "value_bool"):
+            if item.get(k) is not None:
+                return item.get(k)
+        return None
+
+    if isinstance(raw_slots, list):
+        for item in raw_slots:
+            if not isinstance(item, dict):
+                continue
+
+            name = item.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+
+            try:
+                conf_f = float(item.get("confidence", 0.0))
+            except Exception:
+                conf_f = 0.0
+
+            val = _pick_value(item)
+
+            # 같은 슬롯이 여러 번 오면 confidence 높은 걸 채택
+            prev = slots.get(name)
+            prev_conf = float(prev.get("confidence", 0.0)) if isinstance(prev, dict) else -1.0
+            if conf_f >= prev_conf:
+                slots[name] = {"value": val, "confidence": max(min(conf_f, 1.0), 0.0)}
+    else:
+        slots = {}
+
+
+
+    if log_event and trace_id:
+        log_event(trace_id, "nlu_openai_stage2_ok", {
+            "domain": domain,
+            "intent": intent,
+            "slots_keys": list(slots.keys()),
+        })
+
+    return {
+        "domain": domain,
+        "intent": intent,
+        "intent_confidence": max(min(intent_conf, 1.0), 0.0),
+        "slots": slots,
+    }
+
+
+# =========================
+# 3) Public entry
+# =========================
+def nlu_with_llm(
+    req,
+    state: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+    trace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    - OPENAI_ENABLE_LLM=1 && OPENAI_API_KEY 있으면: OpenAI 2-stage NLU
+    - 실패하면: minimal fallback (서비스 안죽게)
+    """
+    msg = (getattr(req, "user_message", "") or "").strip()
+    meta = getattr(req, "meta", None)
+    mode = (getattr(meta, "mode", "") or "").lower().strip()
+
+    if log_event and trace_id:
+        log_event(trace_id, "nlu_enter", {
+            "mode": mode,
+            "msg_len": len(msg),
+            "candidates_count": len(candidates) if isinstance(candidates, list) else None,
+            "state_turn_index": state.get("turn_index") if isinstance(state, dict) else None,
+        })
+
+    enable_llm = os.getenv("OPENAI_ENABLE_LLM", "").strip() == "1"
+    has_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
+
+    if enable_llm and has_key:
+        try:
+            out = _openai_nlu_two_stage(req, state, candidates, trace_id)
+            if log_event and trace_id:
+                log_event(trace_id, "nlu_exit", {
+                    "provider": "openai",
+                    "domain": out.get("domain"),
+                    "intent": out.get("intent"),
+                    "intent_confidence": out.get("intent_confidence"),
+                    "slots_keys": list((out.get("slots") or {}).keys()) if isinstance(out.get("slots"), dict) else [],
+                })
+            return out
+        except Exception as e:
+            if log_event and trace_id:
+                log_event(trace_id, "nlu_openai_fail", {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                })
+
+    out = _minimal_fallback_nlu(req)
+    if log_event and trace_id:
+        log_event(trace_id, "nlu_exit", {
+            "provider": "fallback",
+            "domain": out.get("domain"),
+            "intent": out.get("intent"),
+            "intent_confidence": out.get("intent_confidence"),
+            "slots_keys": list((out.get("slots") or {}).keys()) if isinstance(out.get("slots"), dict) else [],
+        })
+    return out

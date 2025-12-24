@@ -1,0 +1,84 @@
+# nlu/response_renderer.py
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from nlu.messages import TEMPLATES
+from nlu.llm_surface_client import surface_rewrite
+from nlu.llm_answer_client import generate_education_answer, generate_education_summary
+
+
+def _format_template(key: str, vars: Dict[str, Any]) -> str:
+    tmpl = TEMPLATES.get(key) or TEMPLATES.get("fallback.mvp") or ""
+    try:
+        return tmpl.format(**(vars or {}))
+    except Exception:
+        return tmpl
+
+
+def _surface_enabled(message_key: str) -> bool:
+    return message_key.startswith("result.kiosk.")
+
+
+def _options_text(facts: Dict[str, Any]) -> str:
+    og = facts.get("option_groups")
+    if not isinstance(og, dict) or not og:
+        return ""
+    pairs = [f"{k}={v}" for k, v in og.items() if v is not None and str(v).strip() != ""]
+    return f" ({', '.join(pairs)})" if pairs else ""
+
+
+def _notes_text(facts: Dict[str, Any]) -> str:
+    notes = facts.get("notes")
+    if isinstance(notes, str) and notes.strip():
+        return f" / 요청: {notes.strip()}"
+    return ""
+
+
+def render_from_result(
+    *,
+    reply: Dict[str, Any],
+    plan: Dict[str, Any],
+    result: Dict[str, Any],
+    trace_id: Optional[str] = None,
+) -> str:
+    ok = bool(result.get("ok"))
+    facts = result.get("facts")
+    facts = facts if isinstance(facts, dict) else {}
+
+    # 1) education 본문 생성 (llm_task가 있으면 최우선)
+    llm_task = reply.get("llm_task") if isinstance(reply.get("llm_task"), dict) else None
+    if isinstance(llm_task, dict):
+        kind = llm_task.get("kind")
+        if kind == "edu_answer":
+            q = str(llm_task.get("question") or "").strip()
+            out = generate_education_answer(question=q, trace_id=trace_id)
+            if out:
+                return out
+        if kind == "edu_summary":
+            c = str(llm_task.get("content") or "").strip()
+            out = generate_education_summary(content=c, trace_id=trace_id)
+            if out:
+                return out
+        return _format_template("result.fail.generic", {})
+
+    # 2) 템플릿 기반
+    key_ok = reply.get("message_key_ok") or reply.get("message_key") or "fallback.mvp"
+    key_fail = reply.get("message_key_fail") or "result.fail.generic"
+    message_key = str(key_ok if ok else key_fail)
+
+    vars: Dict[str, Any] = {}
+    vars.update(facts)
+
+    if message_key == "result.kiosk.add_item":
+        vars["options"] = _options_text(vars)
+        vars["notes"] = _notes_text(vars)
+
+    text = _format_template(message_key, vars)
+
+    # 3) kiosk 결과 문구는 표현만 리라이트(선택)
+    if ok and _surface_enabled(message_key):
+        rewritten = surface_rewrite(base_text=text, facts=vars, trace_id=trace_id)
+        if rewritten:
+            return rewritten
+    return text

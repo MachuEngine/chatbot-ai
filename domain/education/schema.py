@@ -1,4 +1,4 @@
-EDU_SCHEMA = {
+EDUCATION_SCHEMA = {
     "domain": "education",
 
     "intents": {
@@ -21,7 +21,7 @@ EDU_SCHEMA = {
         },
 
         # 요약/정리
-        "summarize": {
+        "summarize_text": {
             "required_slots": ["content"],
             "optional_slots": ["length", "style", "language"]
         },
