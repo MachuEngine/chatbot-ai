@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional, Any
 
 from rag.site_nav_index import ensure_index_fresh, DEFAULT_DB_PATH, DEFAULT_BASE_URL, DEFAULT_SITEMAP_PATH
 
@@ -40,30 +40,13 @@ def _to_fts_query(q: str) -> str:
     return " AND ".join([f'{t}*' for t in terms[:6]])
 
 
-def _rows_to_hits(rows: List[Any], con: sqlite3.Connection = None) -> List[SearchHit]:
+def _rows_to_hits(rows: List[Any]) -> List[SearchHit]:
     """
-    FTS 결과 또는 일반 SELECT 결과를 SearchHit 객체 리스트로 변환.
-    FTS 테이블인 경우 원본 테이블 조회가 필요할 수 있음.
+    DB 결과 Row 리스트를 SearchHit 객체 리스트로 변환.
+    쿼리 단계에서 필요한 모든 컬럼을 가져왔다고 가정함.
     """
     hits = []
     for r in rows:
-        # FTS 테이블(nav_fts)은 rowid를 가지므로, 필요시 원본(nav_entries)을 조회해야 함
-        # 여기서는 쿼리 단계에서 이미 조인했거나, 필요한 컬럼을 가져왔다고 가정하고 처리
-        
-        # 만약 FTS 쿼리 결과에 url 정보가 없다면 id로 다시 조회 (안전 장치)
-        if "url" not in r.keys() and con:
-            rid = r["rowid"] if "rowid" in r.keys() else r["id"]
-            cur = con.execute("SELECT menu_name, breadcrumb, url, section FROM nav_entries WHERE id = ?", (rid,))
-            orig = cur.fetchone()
-            if orig:
-                hits.append(SearchHit(
-                    menu_name=str(orig["menu_name"]),
-                    breadcrumb=str(orig["breadcrumb"]),
-                    url=str(orig["url"]),
-                    section=str(orig["section"]),
-                ))
-            continue
-
         hits.append(SearchHit(
             menu_name=str(r["menu_name"]),
             breadcrumb=str(r["breadcrumb"]),
