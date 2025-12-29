@@ -12,8 +12,8 @@ try:
 except Exception:  # pragma: no cover
     log_event = None  # type: ignore
 
-from domain.kiosk.schema import KIOSK_SCHEMA
-from domain.education.schema import EDUCATION_SCHEMA
+# ✅ 변경: 개별 import 대신 domain 패키지의 통합 SCHEMAS 사용
+from domain import SCHEMAS
 
 
 def _minimal_fallback_nlu(req) -> Dict[str, Any]:
@@ -26,9 +26,9 @@ def _minimal_fallback_nlu(req) -> Dict[str, Any]:
     if domain == "education":
         return {
             "domain": "education",
-            "intent": "ask_question",
+            "intent": "ask_knowledge",  # 변경된 기본 인텐트
             "intent_confidence": 0.1,
-            "slots": {"question": {"value": msg, "confidence": 0.1}},
+            "slots": {"topic": {"value": msg, "confidence": 0.1}},
         }
 
     return {
@@ -41,9 +41,8 @@ def _minimal_fallback_nlu(req) -> Dict[str, Any]:
 
 def _schema_for_domain(domain: str) -> Dict[str, Any]:
     d = (domain or "").strip().lower()
-    if d == "education":
-        return EDUCATION_SCHEMA
-    return KIOSK_SCHEMA
+    # ✅ 변경: 동적 로딩된 SCHEMAS에서 조회, 없으면 kiosk(기본값)
+    return SCHEMAS.get(d, SCHEMAS.get("kiosk", {}))
 
 
 def _domains_from_candidates(candidates: List[Dict[str, Any]]) -> List[str]:
@@ -67,15 +66,21 @@ def _intents_from_candidates(candidates: List[Dict[str, Any]]) -> List[str]:
 def build_domain_intent_schema(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
     domains = _domains_from_candidates(candidates)
     intents = _intents_from_candidates(candidates)
+    
+    # ✅ 개선: reasoning 필드 추가 (CoT 적용)
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
+            "reasoning": {
+                "type": "string",
+                "description": "Briefly explain why you chose this domain and intent based on user input and context."
+            },
             "domain": {"type": "string", "enum": domains},
             "intent": {"type": "string", "enum": intents},
             "intent_confidence": {"type": "number", "minimum": 0, "maximum": 1},
         },
-        "required": ["domain", "intent", "intent_confidence"],
+        "required": ["reasoning", "domain", "intent", "intent_confidence"],
     }
 
 
@@ -318,10 +323,13 @@ def _openai_nlu_two_stage(
     }
 
     mode = (getattr(meta, "mode", "") or "").lower().strip()
+    
+    # ✅ 개선: 1단계 프롬프트에 CoT 요청 추가
     system1 = (
-        "You are an NLU router."
-        "You should use a friendly and gentle tone of voice."
-        "Choose the best (domain, intent) ONLY from the given candidates. "
+        "You are an NLU router.\n"
+        "You should use a friendly and gentle tone of voice.\n"
+        "1. First, analyze the user's message and context. Write your thoughts briefly in the 'reasoning' field.\n"
+        "2. Then, choose the best (domain, intent) ONLY from the given candidates.\n"
         "Be conservative. Do not invent new domains or intents."
     )
     if mode in ("edu", "education"):
@@ -344,6 +352,7 @@ def _openai_nlu_two_stage(
     domain = (out1.get("domain") or "").strip().lower()
     intent = (out1.get("intent") or "").strip()
     intent_conf = float(out1.get("intent_confidence") or 0.0)
+    reasoning = out1.get("reasoning", "") # ✅ 추출된 추론 내용
 
     if log_event and trace_id:
         log_event(
@@ -354,6 +363,7 @@ def _openai_nlu_two_stage(
                 "domain": domain,
                 "intent": intent,
                 "intent_confidence": intent_conf,
+                "reasoning": reasoning,
             },
         )
 
@@ -419,6 +429,7 @@ def _openai_nlu_two_stage(
             ]
         }
 
+    # ✅ 개선: 2단계 프롬프트에 1단계의 추론(reasoning)을 맥락으로 제공
     system2 = (
         "You are an NLU slot extractor.\n"
         "Return slots as an array of objects.\n"
@@ -428,6 +439,7 @@ def _openai_nlu_two_stage(
         "If unknown, set all value_* fields to null and confidence low.\n"
         "Never invent facts.\n"
         "Follow slot_guidance strictly.\n"
+        f"Context Reasoning from Router: {reasoning}\n"
     )
 
     user2 = {

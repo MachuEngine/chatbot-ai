@@ -1,97 +1,113 @@
+# domain/education/schema.py
 EDUCATION_SCHEMA = {
     "domain": "education",
 
     "intents": {
-        # 개념 설명
-        "explain_concept": {
+        # 1) 지식 탐구 (개념설명 + 단순질문 통합)
+        # - "연음이 뭐야?", "이 단어 뜻 알려줘", "예문 더 줘"
+        "ask_knowledge": {
             "required_slots": ["topic"],
-            "optional_slots": ["level", "subject", "style", "include_examples", "example_type", "language", "length"]
+            "optional_slots": [
+                "question", "request_type",  # definition, usage, example, difference
+                "level", "subject", "style", "language", "include_examples"
+            ]
         },
 
-        # 질문 응답(학습 질문)
-        "ask_question": {
-            "required_slots": ["question"],
-            "optional_slots": ["topic", "subject", "level", "style", "language", "context"]
-        },
-
-        # 피드백(서술/답안/글)
-        "give_feedback": {
+        # 2) 제출물 평가 (피드백 + 정답확인 통합)
+        # - "이 문장 어때?", "이거 정답 맞아?", "채점해줘"
+        "evaluate_submission": {
             "required_slots": ["student_answer"],
-            "optional_slots": ["question", "rubric", "tone", "level", "subject", "language", "target_improvements"]
+            "optional_slots": [
+                "question", "evaluation_type", # grading, correction, feedback
+                "rubric", "target_improvements",
+                "level", "subject", "tone"
+            ]
         },
 
-        # 요약/정리
-        "summarize_text": {
+        # 3) 콘텐츠 변형 (요약 + 문장다듬기 + 번역 등)
+        # - "요약해줘", "자연스럽게 고쳐줘"
+        "process_content": {
             "required_slots": ["content"],
-            "optional_slots": ["length", "style", "language"]
+            "optional_slots": [
+                "process_type", # summarize, rewrite, expand, translate
+                "style", "tone", "length", "goal", "constraints"
+            ]
         },
 
-        # (추가) 연습문제/퀴즈 생성
+        # 4) 연습문제 생성
         "create_practice": {
             "required_slots": ["topic"],
-            "optional_slots": ["level", "subject", "num_questions", "question_type", "include_answers", "difficulty"]
+            "optional_slots": ["level", "subject", "num_questions", "question_type", "difficulty", "include_answers"]
         },
 
-        # (추가) 풀이/정답 확인
-        "check_answer": {
-            "required_slots": ["question", "student_answer"],
-            "optional_slots": ["rubric", "level", "subject", "language", "explain_steps", "tone"]
+        # 5) UI/기능 네비게이션 (RAG 전용)
+        "ask_ui_navigation": {
+            "required_slots": [],
+            "optional_slots": ["menu_name_query"]
         },
-
-        # (추가) 문장/답안 다듬기
-        "rewrite": {
-            "required_slots": ["content"],
-            "optional_slots": ["style", "tone", "goal", "constraints", "language", "length"]
+        
+        # 6) 잡담/교육 외 (Guard용)
+        "chitchat": {
+            "required_slots": [],
+            "optional_slots": []
         },
 
         "fallback": {"required_slots": [], "optional_slots": []},
     },
 
     "slots": {
-        # core
+        # --- Core Content ---
         "topic": {"type": "string", "max_len": 120},
         "question": {"type": "string", "max_len": 800},
         "content": {"type": "string", "max_len": 3000},
-        "context": {"type": "string", "max_len": 1200},
         "student_answer": {"type": "string", "max_len": 3000},
+        "menu_name_query": {"type": "string", "max_len": 50},
 
-        # personalization
-        "subject": {"type": "enum", "values": ["korean", "english", "math", "science", "social", "cs", "other"]},
-        "level": {"type": "enum", "values": ["elementary", "middle", "high", "adult"]},
+        # --- Sub-types for Consolidated Intents ---
+        "request_type": {
+            "type": "enum",
+            "values": ["definition", "usage", "example", "difference", "history", "general"]
+        },
+        "evaluation_type": {
+            "type": "enum",
+            "values": ["grading", "correction", "feedback", "explanation"]
+        },
+        "process_type": {
+            "type": "enum",
+            "values": ["summarize", "rewrite", "expand", "translate"]
+        },
+
+        # --- Context / Personalization (Sticky Candidates) ---
+        "subject": {"type": "enum", "values": ["korean", "english", "math", "social", "science", "other"]},
+        "level": {"type": "enum", "values": ["beginner", "intermediate", "advanced", "elementary", "middle", "high", "adult"]},
         "language": {"type": "enum", "values": ["ko", "en", "other"]},
-
-        # style/tone/length
-        "style": {"type": "enum", "values": ["teacher", "friendly", "exam", "socratic"]},
-        "tone": {"type": "enum", "values": ["strict", "warm", "neutral"]},
-        "length": {"type": "enum", "values": ["short", "medium", "long"]},
-
-        # examples
+        
+        # --- Style & Preference ---
+        "style": {"type": "enum", "values": ["teacher", "friendly", "exam", "socratic", "formal"]},
+        "tone": {"type": "enum", "values": ["strict", "warm", "neutral", "encouraging"]},
+        "length": {"type": "enum", "values": ["short", "medium", "long", "detailed"]},
+        
+        # --- Modifiers ---
         "include_examples": {"type": "boolean"},
-        "example_type": {"type": "enum", "values": ["daily", "exam", "analogy", "case", "code"]},
-
-        # feedback rubric (제한된 선택 + 배열 허용)
         "rubric": {
             "type": "array",
-            "max_items": 6,
-            "items": {"type": "enum", "values": ["accuracy", "logic", "clarity", "evidence", "structure", "grammar"]}
+            "max_items": 5,
+            "items": {"type": "enum", "values": ["grammar", "vocabulary", "fluency", "logic", "spelling"]}
         },
         "target_improvements": {
             "type": "array",
-            "max_items": 6,
-            "items": {"type": "enum", "values": ["shorten", "expand", "simplify", "add_examples", "fix_grammar", "improve_logic"]}
+            "max_items": 5,
+            "items": {"type": "enum", "values": ["fix_grammar", "make_natural", "make_polite", "simplify", "expand"]}
         },
-
-        # practice
-        "num_questions": {"type": "integer", "min": 1, "max": 20},
-        "question_type": {"type": "enum", "values": ["mcq", "short", "essay", "mixed"]},
-        "include_answers": {"type": "boolean"},
+        
+        # --- Practice ---
+        "num_questions": {"type": "integer", "min": 1, "max": 10},
+        "question_type": {"type": "enum", "values": ["mcq", "short_answer", "essay", "mixed"]},
         "difficulty": {"type": "enum", "values": ["easy", "medium", "hard"]},
+        "include_answers": {"type": "boolean"},
 
-        # answer checking
-        "explain_steps": {"type": "boolean"},
-
-        # rewrite goal/constraints
-        "goal": {"type": "enum", "values": ["polish", "simplify", "make_formal", "make_friendly", "exam_ready"]},
-        "constraints": {"type": "string", "max_len": 300},
+        # --- Rewrite Constraints ---
+        "goal": {"type": "enum", "values": ["polish", "formalize", "simplify", "creative"]},
+        "constraints": {"type": "string", "max_len": 200},
     },
 }

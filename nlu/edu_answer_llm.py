@@ -7,13 +7,17 @@ from typing import Any, Dict, Optional, List
 
 import requests
 
-from utils.logging import log_event
+try:
+    from utils.logging import log_event
+except Exception:
+    log_event = None
+
 from rag.site_nav_retriever import search_site_nav
 
 OPENAI_API_URL = "https://api.openai.com/v1/responses"
 
 # ----------------------------
-# UI navigation intent detect
+# UI navigation intent detect helpers
 # ----------------------------
 _NAV_KW = [
     "메뉴", "페이지", "어디", "어디에", "경로", "들어가", "찾아", "위치", "바로가기", "링크",
@@ -45,10 +49,58 @@ def _extract_menu_candidate(user_message: str) -> str:
     return s if len(s) >= 2 else (user_message or "").strip()
 
 
-def _render_nav_answer(query: str, hits: List[Any]) -> Dict[str, Any]:
+# ----------------------------
+# 1. Retrieval Router
+# ----------------------------
+class RetrievalRouter:
+    """
+    사용자 의도와 메시지에 따라 적절한 답변 소스(RAG/LLM)를 결정합니다.
+    """
+    @staticmethod
+    def route(intent: str, user_message: str, slots: Dict[str, Any]) -> str:
+        # 1) 명시적 UI 네비게이션 인텐트
+        if intent == "ask_ui_navigation":
+            return "site_nav"
+        
+        # 2) 키워드 기반 UI 네비게이션 감지 (Fallback)
+        if _is_ui_navigation_question(user_message):
+            return "site_nav"
+        
+        # 3) 지식 검색 (Knowledge Base) - 추후 VectorDB 연결 예정
+        # 현재는 ask_knowledge 인텐트가 오면 LLM이 처리하되, 필요시 문맥을 주입하는 구조 준비
+        if intent == "ask_knowledge":
+            return "knowledge_base" # 현재 구현상 LLM으로 fallback됨
+
+        # 4) 기본 LLM 생성
+        return "llm_generate"
+
+
+# ----------------------------
+# 2. Handlers
+# ----------------------------
+
+def _handle_site_nav(user_message: str, slots: Dict[str, Any], trace_id: Optional[str]) -> Dict[str, Any]:
+    # 슬롯에서 메뉴명 추출 시도, 없으면 메시지에서 추출
+    q = slots.get("menu_name_query", {}).get("value")
+    if not q:
+        q = _extract_menu_candidate(user_message)
+    
+    hits = search_site_nav(query=q, topk=3)
+    
+    if log_event and trace_id:
+        log_event(
+            trace_id,
+            "edu_site_nav_rag_search",
+            {
+                "query": q,
+                "hit_count": len(hits),
+                "top": getattr(hits[0], "menu_name", None) if hits else None,
+            },
+        )
+
     if not hits:
         return {
-            "text": f"'{query}' 메뉴를 사이트에서 찾지 못했어요. 메뉴 이름을 조금 더 정확히 알려주시면 다시 찾아드릴게요.",
+            "text": f"'{q}' 메뉴를 사이트에서 찾지 못했어요. 메뉴 이름을 조금 더 정확히 알려주시면 다시 찾아드릴게요.",
             "ui_hints": {
                 "domain": "education",
                 "intent": "ask_ui_navigation",
@@ -140,10 +192,6 @@ def _openai_call_json_schema(
 
 
 def _edu_generation_schema() -> Dict[str, Any]:
-    # ✅ Responses API strict json_schema 규칙:
-    # - object의 properties를 선언하면, required는 그 properties의 모든 키를 포함해야 함.
-    # - 따라서 ui_hints에 확장 키를 넣는다면 required에도 전부 포함시키고,
-    #   "해당 없으면 빈 문자열"로 채우도록 한다.
     return {
         "type": "object",
         "additionalProperties": False,
@@ -166,35 +214,11 @@ def _edu_generation_schema() -> Dict[str, Any]:
     }
 
 
-def generate_edu_answer_with_llm(
-    *,
+def _handle_llm_generate(
     task_input: Dict[str, Any],
     user_message: str,
-    trace_id: Optional[str] = None,
+    trace_id: Optional[str]
 ) -> Dict[str, Any]:
-    # 0) UI navigation RAG fast-path
-    try:
-        if _is_ui_navigation_question(user_message):
-            q = _extract_menu_candidate(user_message)
-            hits = search_site_nav(query=q, topk=3)
-            out = _render_nav_answer(q, hits)
-
-            if log_event and trace_id:
-                log_event(
-                    trace_id,
-                    "edu_site_nav_rag_ok",
-                    {
-                        "query": q,
-                        "hit_count": len(hits),
-                        "top": getattr(hits[0], "menu_name", None) if hits else None,
-                    },
-                )
-            return out
-    except Exception as e:
-        if log_event and trace_id:
-            log_event(trace_id, "edu_site_nav_rag_fail", {"err": str(e)[:400]})
-
-    # 1) 기존 LLM 생성 로직
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is empty")
@@ -247,7 +271,7 @@ def generate_edu_answer_with_llm(
     ui_hints.setdefault("domain", "education")
     ui_hints.setdefault("intent", intent or "ask_question")
 
-    # ✅ strict schema 때문에 항상 있어야 하지만, 혹시라도 방어적으로 보정
+    # ✅ strict schema 보정
     ui_hints.setdefault("menu_name", "")
     ui_hints.setdefault("breadcrumb", "")
     ui_hints.setdefault("url", "")
@@ -257,3 +281,40 @@ def generate_edu_answer_with_llm(
             ui_hints[k] = str(ui_hints.get(k) or "")
 
     return {"text": text, "ui_hints": ui_hints}
+
+
+# ----------------------------
+# 3. Main Entry Point
+# ----------------------------
+def generate_edu_answer_with_llm(
+    *,
+    task_input: Dict[str, Any],
+    user_message: str,
+    trace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    
+    intent = ((task_input.get("intent") or "") if isinstance(task_input, dict) else "").strip()
+    slots = (task_input.get("slots") or {}) if isinstance(task_input.get("slots"), dict) else {}
+
+    # 1. Routing
+    route = RetrievalRouter.route(intent, user_message, slots)
+
+    if log_event and trace_id:
+        log_event(trace_id, "edu_router_decision", {"route": route, "intent": intent})
+
+    # 2. Execution based on route
+    if route == "site_nav":
+        try:
+            return _handle_site_nav(user_message, slots, trace_id)
+        except Exception as e:
+            if log_event and trace_id:
+                log_event(trace_id, "edu_site_nav_fail", {"err": str(e)})
+            # 실패 시 LLM으로 fallback
+            return _handle_llm_generate(task_input, user_message, trace_id)
+
+    elif route == "knowledge_base":
+        # TODO: VectorDB 연결 시 여기에 로직 추가. 현재는 LLM 생성으로 처리.
+        pass
+
+    # Default: LLM Generation
+    return _handle_llm_generate(task_input, user_message, trace_id)
