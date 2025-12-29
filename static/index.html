@@ -3,451 +3,511 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>chatbot-ai API Tester</title>
+  <title>Chatbot AI - Gemini Theme</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    /* ... (기존 스타일 그대로 유지) ... */
     :root {
-      --bg: #0b0f14;
-      --panel: #0f1520;
-      --panel2:#0d1320;
-      --text: #e6eef7;
-      --muted:#9fb0c3;
-      --line:#1f2b3a;
-      --accent:#7aa2f7;
-      --good:#9ece6a;
-      --warn:#e0af68;
-      --bad:#f7768e;
-      --chip:#141c2a;
-      --shadow: 0 8px 30px rgba(0,0,0,.35);
-      --radius: 14px;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", "Apple SD Gothic Neo", Arial, "Helvetica Neue", sans-serif;
+      /* Gemini Dark Palette */
+      --bg: #131314;
+      --surface: #1E1F20;
+      --surface-2: #2D2E30; /* Input fields, User bubbles */
+      --line: #444746;
+      
+      --text-main: #E3E3E3;
+      --text-sub: #C4C7C5;
+      --text-muted: #8E918F;
+
+      --accent-gradient: linear-gradient(135deg, #4b90ff, #ff5546); /* Gemini Sparkle Vibe */
+      --accent-blue: #A8C7FA;
+      --accent-blue-dim: rgba(168, 199, 250, 0.1);
+      
+      --success: #6DD58C;
+      --error: #F2B8B5; /* Soft Red */
+      
+      --radius-l: 24px;
+      --radius-m: 16px;
+      --radius-s: 8px;
+
+      --shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+      
+      --font-body: 'Roboto', -apple-system, sans-serif;
+      --font-head: 'Google Sans', 'Roboto', sans-serif;
+      --mono: 'Menlo', 'Consolas', monospace;
     }
+
     * { box-sizing: border-box; }
+    
     body {
-      margin:0;
-      font-family: var(--sans);
-      background: radial-gradient(1200px 800px at 10% 10%, rgba(122,162,247,.12), transparent 60%),
-                  radial-gradient(900px 700px at 90% 20%, rgba(158,206,106,.10), transparent 60%),
-                  var(--bg);
-      color: var(--text);
+      margin: 0;
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      /* Subtle ambient glow */
+      background-image: 
+        radial-gradient(circle at 10% 10%, rgba(76, 141, 246, 0.05), transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(217, 101, 112, 0.05), transparent 40%);
+      min-height: 100vh;
     }
-    header {
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--line);
-      background: rgba(15,21,32,.65);
-      backdrop-filter: blur(10px);
-      position: sticky;
-      top:0;
-      z-index: 5;
-    }
-    header .row {
-      display:flex; align-items:center; gap:12px; flex-wrap: wrap;
-    }
-    .title {
-      font-weight: 700;
-      letter-spacing: .2px;
-      display:flex; align-items:center; gap:10px;
-    }
-    .pill {
-      font-size: 12px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: rgba(122,162,247,.14);
-      border: 1px solid rgba(122,162,247,.25);
-      color: var(--text);
-    }
-    .container {
-      display:grid;
-      grid-template-columns: 1.25fr .95fr;
-      gap: 14px;
-      padding: 14px;
-      max-width: 1400px;
+
+    /* --- Layout --- */
+    .app-layout {
+      max-width: 1600px;
       margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      gap: 20px;
+      padding: 20px;
+      height: 100vh;
     }
-    @media (max-width: 1100px){
-      .container { grid-template-columns: 1fr; }
+    
+    @media (max-width: 1000px) {
+      .app-layout { grid-template-columns: 1fr; height: auto; }
+      .chat-panel { height: 80vh; }
     }
-    .card {
-      background: linear-gradient(180deg, rgba(15,21,32,.92), rgba(12,17,26,.92));
-      border: 1px solid rgba(31,43,58,.9);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow:hidden;
+
+    /* --- Typography --- */
+    h1, h2, h3, .title { font-family: var(--font-head); }
+    
+    /* --- Header --- */
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 5px;
+      border-bottom: 1px solid transparent;
     }
-    .card .hd {
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line);
-      display:flex; align-items:center; justify-content: space-between;
-      background: rgba(13,19,32,.75);
+    .brand {
+      font-size: 20px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--text-main);
     }
-    .card .hd .left { display:flex; align-items:center; gap:10px; }
-    .card .hd .h {
+    .brand-icon {
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
       font-weight: 700;
-      font-size: 14px;
+      /* 기존 24px에서 줄임 */
+      font-size: 22px; 
+      /* 이모지 위치 미세 조정 */
+      margin-right: 4px;
     }
-    .card .bd { padding: 14px; }
-    .muted { color: var(--muted); }
-    .btns { display:flex; gap:8px; flex-wrap: wrap; }
-    button {
-      border: 1px solid rgba(31,43,58,.9);
-      background: rgba(20,28,42,.85);
-      color: var(--text);
-      padding: 9px 12px;
-      border-radius: 12px;
-      cursor:pointer;
-      transition: .15s ease;
-      font-weight: 650;
-      font-size: 13px;
-    }
-    button:hover { border-color: rgba(122,162,247,.55); transform: translateY(-1px); }
-    button.primary {
-      background: linear-gradient(180deg, rgba(122,162,247,.35), rgba(122,162,247,.18));
-      border-color: rgba(122,162,247,.55);
-    }
-    button.bad {
-      background: rgba(247,118,142,.12);
-      border-color: rgba(247,118,142,.35);
-    }
-    button.good {
-      background: rgba(158,206,106,.12);
-      border-color: rgba(158,206,106,.35);
-    }
-    input, textarea, select {
-      width: 100%;
-      padding: 10px 11px;
-      border-radius: 12px;
-      border: 1px solid rgba(31,43,58,.9);
-      background: rgba(8,12,18,.55);
-      color: var(--text);
-      outline: none;
-      font-family: var(--sans);
-    }
-    textarea { min-height: 90px; resize: vertical; }
-    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .grid3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-    .field { display:flex; flex-direction: column; gap:6px; margin-bottom: 10px; }
-    .label {
-      font-size: 12px;
-      color: var(--muted);
-      display:flex; align-items:center; justify-content: space-between;
-      gap:10px;
-    }
-    .chip {
-      font-family: var(--mono);
+    .pill-badge {
       font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: rgba(20,28,42,.9);
-      border: 1px solid rgba(31,43,58,.9);
-      color: var(--muted);
-      white-space: nowrap;
+      background: var(--surface-2);
+      color: var(--text-sub);
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-family: var(--mono);
     }
-    .chat {
-      height: calc(100vh - 190px);
-      min-height: 520px;
-      display:flex;
+
+    /* --- Cards --- */
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius-l);
+      display: flex;
       flex-direction: column;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .card-hd {
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-main);
+    }
+
+    /* --- Chat Area --- */
+    .chat-panel {
+      position: relative;
     }
     .msgs {
-      flex:1;
-      overflow:auto;
-      padding: 14px;
-      display:flex;
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 24px;
+      scroll-behavior: smooth;
     }
+    
     .msg {
-      max-width: 86%;
-      padding: 10px 12px;
-      border-radius: 14px;
-      border: 1px solid rgba(31,43,58,.9);
-      background: rgba(8,12,18,.45);
-      white-space: pre-wrap;
-      line-height: 1.42;
-      overflow-wrap: break-word; /* 긴 링크 줄바꿈 처리 */
+      max-width: 85%;
+      line-height: 1.6;
+      font-size: 15px;
+      position: relative;
+      word-break: break-word;
     }
+
+    /* User Bubble */
     .msg.user {
       align-self: flex-end;
-      background: rgba(122,162,247,.12);
-      border-color: rgba(122,162,247,.28);
+      background-color: var(--surface-2);
+      color: var(--text-main);
+      padding: 12px 18px;
+      border-radius: 18px 18px 4px 18px;
     }
+
+    /* Bot Bubble */
     .msg.bot {
       align-self: flex-start;
-      background: rgba(158,206,106,.10);
-      border-color: rgba(158,206,106,.25);
+      padding: 0 10px 0 34px; /* Space for icon */
+      color: var(--text-main);
     }
-    /* ✅ 링크 스타일 추가 */
-    .msg a {
-      color: var(--accent);
-      text-decoration: underline;
-      cursor: pointer;
+    .msg.bot::before {
+      content: '✨'; /* Gemini Sparkle */
+      position: absolute;
+      left: 0;
+      top: 0;
+      font-size: 18px;
     }
-    .msg a:hover {
-      color: #fff;
-    }
-    .metaRow {
+
+    .meta-info {
+      font-size: 11px;
+      color: var(--text-muted);
       margin-top: 6px;
       font-family: var(--mono);
-      font-size: 11px;
-      color: rgba(230,238,247,.75);
+      opacity: 0.7;
     }
+
+    .msg a {
+      color: var(--accent-blue);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: .2s;
+    }
+    .msg a:hover {
+      border-bottom-color: var(--accent-blue);
+    }
+
+    /* --- Composer (Input Area) --- */
     .composer {
-      border-top: 1px solid var(--line);
-      padding: 12px;
-      display:flex;
+      background: var(--surface);
+      padding: 20px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .input-wrapper {
+      background: var(--surface-2);
+      border-radius: 28px;
+      padding: 8px 8px 8px 20px;
+      display: flex;
+      align-items: flex-end;
+      border: 1px solid transparent;
+      transition: .2s;
+    }
+    .input-wrapper:focus-within {
+      background: #252628;
+      border-color: #555;
+    }
+    
+    textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-main);
+      font-size: 15px;
+      font-family: var(--font-body);
+      resize: none;
+      outline: none;
+      min-height: 24px;
+      max-height: 120px;
+      padding: 12px 0;
+      line-height: 1.5;
+    }
+    textarea::placeholder { color: var(--text-muted); }
+
+    /* --- Buttons --- */
+    button {
+      border: none;
+      cursor: pointer;
+      font-family: var(--font-head);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 20px;
+      transition: .2s;
+    }
+    
+    /* Primary Send Button (Icon style) */
+    .btn-send {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--text-main);
+      color: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 10px;
+      padding: 0;
+    }
+    .btn-send:hover { opacity: 0.9; transform: scale(1.05); }
+    .btn-send svg { width: 20px; height: 20px; fill: currentColor; }
+
+    /* Secondary Buttons */
+    .btn-text {
+      background: transparent;
+      color: var(--text-sub);
+      border: 1px solid var(--line);
+    }
+    .btn-text:hover {
+      background: var(--surface-2);
+      color: var(--text-main);
+    }
+    
+    .btn-chip {
+      background: rgba(168, 199, 250, 0.08);
+      color: var(--accent-blue);
+    }
+    .btn-chip:hover {
+      background: rgba(168, 199, 250, 0.15);
+    }
+
+    .btn-reset {
+      color: var(--error);
+      background: rgba(242, 184, 181, 0.05);
+    }
+    .btn-reset:hover { background: rgba(242, 184, 181, 0.1); }
+
+    /* --- Controls Panel --- */
+    .controls-panel {
+      padding: 20px;
+      overflow-y: auto;
+      gap: 16px;
+      display: flex;
       flex-direction: column;
-      gap:10px;
-      background: rgba(13,19,32,.55);
     }
-    .composer .row {
-      display:flex; gap:10px; align-items: flex-end;
-    }
-    .composer textarea { min-height: 54px; }
-    .split {
-      display:grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .code {
-      font-family: var(--mono);
+    .section-label {
       font-size: 12px;
-      background: rgba(8,12,18,.55);
-      border: 1px solid rgba(31,43,58,.9);
-      border-radius: 12px;
-      padding: 10px;
-      white-space: pre;
-      overflow:auto;
-      max-height: 280px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      margin-top: 12px;
     }
-    .status {
-      font-family: var(--mono);
-      font-size: 12px;
+    
+    input, select {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid transparent;
+      border-radius: 8px;
       padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid rgba(31,43,58,.9);
-      background: rgba(8,12,18,.45);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      font-size: 13px;
+      outline: none;
+      margin-bottom: 10px;
     }
-    .status.ok { border-color: rgba(158,206,106,.35); }
-    .status.err { border-color: rgba(247,118,142,.35); }
-    a { color: var(--accent); }
+    input:focus, select:focus {
+      border-color: var(--accent-blue);
+      background: #252628;
+    }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    
+    .code-block {
+      background: #000;
+      border-radius: 12px;
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-sub);
+      overflow-x: auto;
+      border: 1px solid var(--line);
+    }
+
+    /* Status Indicators */
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .status-dot.idle { background: var(--text-muted); }
+    .status-dot.sending { background: var(--accent-blue); box-shadow: 0 0 8px var(--accent-blue); }
+    .status-dot.error { background: var(--error); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #555; }
   </style>
 </head>
 
 <body>
-<header>
-  <div class="row">
-    <div class="title">
-      <span>chatbot-ai API Tester</span>
-      <span class="pill">POST /api/chat</span>
-    </div>
-    <div class="muted" style="font-size:12px;">
-      edu / kiosk + 옵션질문 + edu RAG 메뉴위치까지 확인용
-    </div>
-  </div>
-</header>
 
-<div class="container">
-  <div class="card chat">
-    <div class="hd">
-      <div class="left">
-        <div class="h">Chat</div>
-        <span class="chip" id="endpointChip">http://localhost:8000/api/chat</span>
-      </div>
-      <div class="btns">
-        <button class="good" id="btnExamples">Load Examples</button>
-        <button class="bad" id="btnClear">Clear</button>
+<div class="app-layout">
+  
+  <header>
+    <div class="brand">
+      <span class="brand-icon">🪐</span>
+      Chatbot AI Test Console
+    </div>
+    <div class="pill-badge" id="endpointChip">http://localhost:8000/api/chat</div>
+  </header>
+
+  <div class="card chat-panel">
+    <div class="card-hd">
+      <span class="card-title">Session</span>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-text btn-reset" id="btnClear">Clear</button>
+        <button class="btn-text btn-chip" id="btnExamples">Random Prompt</button>
       </div>
     </div>
 
-    <div class="msgs" id="msgs"></div>
+    <div class="msgs" id="msgs">
+      <div class="msg bot" style="opacity:0.6;">
+        안녕하세요! 무엇을 도와드릴까요?<br>
+        <span class="meta-info">System Init</span>
+      </div>
+    </div>
 
     <div class="composer">
-      <div class="row">
-        <div style="flex:1">
-          <div class="label">user_message</div>
-          <textarea id="userMessage" placeholder="예) 아메리카노 아이스로 라지 사이즈 두 개 주세요 / 연음이 뭐야? / 학습 단어 목록 메뉴가 어디에 있어요?"></textarea>
-        </div>
-        <div style="width:170px">
-          <div class="label">Send</div>
-          <button class="primary" id="btnSend" style="width:100%;">Send</button>
-        </div>
+      <div class="input-wrapper">
+        <textarea id="userMessage" rows="1" placeholder="메시지를 입력하세요... (Enter to send, Shift+Enter for newline)"></textarea>
+        <button id="btnSend" class="btn-send">
+          <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
       </div>
-
-      <div class="split">
-        <div class="status" id="statusBox">
-          status: idle
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding:0 4px;">
+        <div style="font-size:12px; color:var(--text-muted); display:flex; align-items:center;">
+          <span id="statusDot" class="status-dot idle"></span>
+          <span id="statusText">Ready</span>
         </div>
-        <div class="status">
-          trace_id: <span id="traceId" class="muted">-</span>
+        <div style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">
+          Trace: <span id="traceId">-</span>
         </div>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div class="hd">
-      <div class="left">
-        <div class="h">Meta / Debug</div>
-        <span class="chip">ui_hints / state 확인</span>
-      </div>
-      <div class="btns">
-        <button id="btnPresetEdu">Preset: EDU</button>
-        <button id="btnPresetKiosk">Preset: KIOSK</button>
+    <div class="card-hd">
+      <span class="card-title">Configuration</span>
+      <div style="display:flex; gap:6px;">
+        <button class="btn-text" id="btnPresetEdu" style="font-size:11px;">EDU</button>
+        <button class="btn-text" id="btnPresetKiosk" style="font-size:11px;">KIOSK</button>
       </div>
     </div>
 
-    <div class="bd">
-      <div class="field">
-        <div class="label">API endpoint <span class="chip">변경 가능</span></div>
+    <div class="controls-panel">
+      
+      <div>
+        <div class="section-label">Endpoint</div>
         <input id="endpoint" value="http://localhost:8000/api/chat" />
       </div>
 
-      <div class="grid2">
-        <div class="field">
-          <div class="label">client_session_id</div>
-          <input id="clientSessionId" value="sess_web_1" />
-        </div>
-        <div class="field">
-          <div class="label">mode</div>
+      <div>
+        <div class="section-label">Session & Mode</div>
+        <div class="grid-2">
+          <input id="clientSessionId" value="sess_web_1" placeholder="Session ID" />
           <select id="mode">
-            <option value="edu">edu</option>
-            <option value="kiosk">kiosk</option>
+            <option value="edu">Edu Mode</option>
+            <option value="kiosk">Kiosk Mode</option>
           </select>
         </div>
+        <input id="domain" value="education" placeholder="Domain (optional)" />
       </div>
 
-      <div class="grid2">
-        <div class="field">
-          <div class="label">domain (optional)</div>
-          <input id="domain" value="education" placeholder="education / kiosk (optional)" />
-        </div>
-        <div class="field">
-          <div class="label">kiosk_type (kiosk only)</div>
-          <input id="kioskType" value="cafe" placeholder="cafe" />
-        </div>
-      </div>
-
-      <div class="grid3">
-        <div class="field">
-          <div class="label">store_id (kiosk only)</div>
-          <input id="storeId" value="store_01" />
-        </div>
-        <div class="field">
-          <div class="label">device_type</div>
+      <div>
+        <div class="section-label">Environment</div>
+        <div class="grid-2">
           <select id="deviceType">
-            <option value="web">web</option>
-            <option value="kiosk">kiosk</option>
-            <option value="mobile">mobile</option>
+            <option value="web">Web</option>
+            <option value="kiosk">Kiosk Machine</option>
+            <option value="mobile">Mobile</option>
           </select>
-        </div>
-        <div class="field">
-          <div class="label">input_type</div>
           <select id="inputType">
-            <option value="text">text</option>
-            <option value="voice">voice</option>
+            <option value="text">Text</option>
+            <option value="voice">Voice</option>
           </select>
         </div>
       </div>
 
-      <div class="grid2">
-        <div class="field">
-          <div class="label">locale</div>
-          <input id="locale" value="ko-KR" />
+      <div>
+        <div class="section-label">Kiosk Details</div>
+        <div class="grid-2">
+          <input id="kioskType" value="cafe" placeholder="Type" />
+          <input id="storeId" value="store_01" placeholder="Store ID" />
         </div>
-        <div class="field">
-          <div class="label">timezone</div>
-          <input id="timezone" value="Asia/Seoul" />
+        <input id="dbPath" value="data/menu.db" placeholder="Menu DB Path" />
+      </div>
+
+      <div>
+        <div class="section-label">Debug Data</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div class="code-block" id="replyJson">{}</div>
+          <div class="code-block" id="stateJson">{}</div>
         </div>
       </div>
 
-      <div class="grid2">
-        <div class="field">
-          <div class="label">db_path (kiosk 메뉴DB)</div>
-          <input id="dbPath" value="data/menu.db" />
-        </div>
-        <div class="field">
-          <div class="label">site_nav_db_path (edu RAG)</div>
-          <input id="siteNavDbPath" value="data/site_nav.sqlite3" />
-        </div>
-      </div>
-
-      <div class="field">
-        <div class="label">Extra meta JSON (merge)</div>
-        <textarea id="extraMeta" placeholder='예) {"foo":"bar"}'></textarea>
-      </div>
-
-      <hr style="border:0;border-top:1px solid var(--line); margin:14px 0;" />
-
-      <div class="grid2">
-        <div>
-          <div class="label">Last Reply JSON</div>
-          <div class="code" id="replyJson">{}</div>
-        </div>
-        <div>
-          <div class="label">Last State JSON</div>
-          <div class="code" id="stateJson">{}</div>
-        </div>
-      </div>
-
-      <div style="margin-top:12px;" class="muted">
-        <div style="font-size:12px; line-height:1.5;">
-          <b>CORS 이슈</b>로 막히면:
-          <ol style="margin:6px 0 0 18px; padding:0;">
-            <li>백엔드에 CORS 허용 추가</li>
-            <li>또는 이 HTML을 백엔드와 같은 origin에서 서빙 (예: FastAPI static)</li>
-          </ol>
-        </div>
-      </div>
+      <input id="locale" type="hidden" value="ko-KR">
+      <input id="timezone" type="hidden" value="Asia/Seoul">
+      <input id="siteNavDbPath" type="hidden" value="data/site_nav.sqlite3">
+      <textarea id="extraMeta" style="display:none;"></textarea>
 
     </div>
   </div>
+
 </div>
 
 <script>
   const $ = (id) => document.getElementById(id);
-
-  const storeKey = "chatbot_ai_tester_v1";
+  const storeKey = "chatbot_gemini_theme_v1";
 
   function nowTime() {
-    const d = new Date();
-    return d.toLocaleTimeString();
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
-  // ✅ [수정] 텍스트 내 URL을 감지하여 A태그로 변환하는 함수
+  // URL Auto-Linker
   function linkify(text) {
     if (!text) return "";
-    // URL 패턴 (http/https)
     const urlPattern = /(\b(https?|ftp):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/gim;
-    // URL을 <a> 태그로 치환 (새 탭에서 열기 target="_blank")
-    let replacedText = text.replace(urlPattern, '<a href="$1" target="_blank">$1</a>');
-    return replacedText;
+    return text.replace(urlPattern, '<a href="$1" target="_blank">$1</a>');
   }
 
-  // ✅ [수정] addMsg 함수에서 innerHTML을 사용하여 링크가 렌더링되도록 변경
   function addMsg(role, text, metaLine) {
     const el = document.createElement("div");
     el.className = "msg " + (role === "user" ? "user" : "bot");
     
-    // XSS 방지를 위해 기본 텍스트를 먼저 생성 후 linkify 적용은 제한적으로 사용하는 것이 좋으나,
-    // 테스터 도구 특성상 편의를 위해 innerHTML 사용.
-    // 실서비스라면 DOMPurify 등을 사용하는 것이 안전함.
+    // HTML insertion for linkify
     el.innerHTML = linkify(text || "");
 
     if (metaLine) {
       const meta = document.createElement("div");
-      meta.className = "metaRow";
+      meta.className = "meta-info";
       meta.textContent = metaLine;
       el.appendChild(meta);
     }
     $("msgs").appendChild(el);
-    $("msgs").scrollTop = $("msgs").scrollHeight;
+    // Smooth scroll to bottom
+    setTimeout(() => {
+      $("msgs").scrollTo({ top: $("msgs").scrollHeight, behavior: 'smooth' });
+    }, 10);
   }
 
   function setStatus(kind, text) {
-    const box = $("statusBox");
-    box.className = "status " + (kind || "");
-    box.textContent = "status: " + text;
+    const dot = $("statusDot");
+    const txt = $("statusText");
+    
+    dot.className = "status-dot " + (kind || "idle");
+    txt.textContent = text;
   }
 
   function setJson(el, obj) {
@@ -455,13 +515,12 @@
   }
 
   function buildMeta() {
+    // Basic meta construction from inputs
     let extra = {};
     try {
       const raw = $("extraMeta").value.trim();
       if (raw) extra = JSON.parse(raw);
-    } catch (e) {
-      // keep extra empty
-    }
+    } catch (e) {}
 
     const meta = {
       client_session_id: $("clientSessionId").value.trim(),
@@ -474,22 +533,17 @@
       ...extra,
     };
 
-    // kiosk specific
-    const m = meta.mode;
-    if (m === "kiosk") {
+    if (meta.mode === "kiosk") {
       meta.kiosk_type = $("kioskType").value.trim() || "cafe";
       meta.store_id = $("storeId").value.trim() || "store_01";
       meta.db_path = $("dbPath").value.trim() || "data/menu.db";
     }
-
-    // edu RAG db path (optional; server may ignore)
     meta.site_nav_db_path = $("siteNavDbPath").value.trim() || "data/site_nav.sqlite3";
 
-    // drop empty keys
+    // Clean empty keys
     Object.keys(meta).forEach(k => {
       if (meta[k] === "" || meta[k] == null) delete meta[k];
     });
-
     return meta;
   }
 
@@ -497,20 +551,19 @@
     const endpoint = $("endpoint").value.trim();
     $("endpointChip").textContent = endpoint;
 
-    const user_message = $("userMessage").value.trim();
+    const inputEl = $("userMessage");
+    const user_message = inputEl.value.trim();
     if (!user_message) return;
 
-    // ✅ [수정] 전송 후 입력창 비우기
-    $("userMessage").value = "";
+    // Reset Input immediately for UX
+    inputEl.value = "";
+    inputEl.style.height = 'auto'; // reset height
 
     const meta = buildMeta();
-
-    addMsg("user", user_message, `${nowTime()}  meta.mode=${meta.mode || "-"}  domain=${meta.domain || "-"}`);
-    setStatus("", "sending...");
+    addMsg("user", user_message, `${nowTime()}`);
+    setStatus("sending", "Thinking...");
 
     const body = { user_message, meta };
-
-    // persist
     saveState({ lastBody: body });
 
     try {
@@ -520,147 +573,105 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
       const dt = Math.round(performance.now() - t0);
-
+      
       const json = await res.json().catch(() => ({}));
       const trace = json?.trace_id || json?.detail?.trace_id || "-";
       $("traceId").textContent = trace;
 
       if (!res.ok) {
-        addMsg("bot", `HTTP ${res.status}\n` + JSON.stringify(json, null, 2), `${nowTime()}  ${dt}ms`);
-        setStatus("err", `error (HTTP ${res.status})`);
-        setJson($("replyJson"), json?.reply || json?.detail || json);
-        setJson($("stateJson"), json?.state || {});
-        saveState({ lastResponse: json });
+        addMsg("bot", `Error ${res.status}: ` + (json.detail || "Unknown error"), `${dt}ms`);
+        setStatus("error", "Error");
+        setJson($("replyJson"), json);
         return;
       }
 
       const reply = json?.reply || {};
       const state = json?.state || {};
       const text = reply?.text ?? JSON.stringify(reply, null, 2);
-
-      // show bot message + small meta
+      
       const intent = reply?.ui_hints?.intent || state?.active_intent || "-";
-      const actionType = reply?.action_type || "-";
-      addMsg("bot", text, `${nowTime()}  ${dt}ms  action_type=${actionType}  intent=${intent}`);
-
-      setStatus("ok", "ok");
+      
+      addMsg("bot", text, `${dt}ms • ${intent}`);
+      setStatus("idle", "Ready");
+      
       setJson($("replyJson"), reply);
       setJson($("stateJson"), state);
-
       saveState({ lastResponse: json });
 
     } catch (err) {
-      addMsg("bot", String(err), `${nowTime()}`);
-      setStatus("err", "network error (CORS?)");
+      addMsg("bot", "Network Error: " + String(err), nowTime());
+      setStatus("error", "Network Error");
     }
   }
 
   function clearAll() {
-    $("msgs").innerHTML = "";
+    $("msgs").innerHTML = '<div class="msg bot" style="opacity:0.6;">대화가 초기화되었습니다.<br><span class="meta-info">System Reset</span></div>';
     $("replyJson").textContent = "{}";
     $("stateJson").textContent = "{}";
     $("traceId").textContent = "-";
-    setStatus("", "idle");
+    setStatus("idle", "Ready");
   }
 
   function loadExamples() {
     const examples = [
-      // kiosk
-      { mode:"kiosk", domain:"kiosk", msg:"아메리카노 아이스로 라지 사이즈 두 개 주세요" },
-      { mode:"kiosk", domain:"kiosk", msg:"아메리카노 1개 주세요" },
-      // edu
       { mode:"edu", domain:"education", msg:"연음이 뭐야?" },
-      { mode:"edu", domain:"education", msg:"연음 발음이라는게 뭐고" },
-      // edu RAG nav
-      { mode:"edu", domain:"education", msg:"학습 단어 목록 메뉴가 어디에 있어요?" },
-      { mode:"edu", domain:"education", msg:"발음 평가 페이지는 어디서 들어가요?" },
+      { mode:"edu", domain:"education", msg:"문장 학습 메뉴 찾아줘" },
+      { mode:"kiosk", domain:"kiosk", msg:"아이스 아메리카노 한 잔" },
     ];
-
     const pick = examples[Math.floor(Math.random() * examples.length)];
     $("mode").value = pick.mode;
     $("domain").value = pick.domain;
     $("userMessage").value = pick.msg;
-
-    // apply preset defaults
-    if (pick.mode === "kiosk") presetKiosk();
-    else presetEdu();
+    
+    if(pick.mode === 'kiosk') presetKiosk(); else presetEdu();
   }
 
   function presetEdu() {
     $("mode").value = "edu";
     $("domain").value = "education";
     $("deviceType").value = "web";
-    $("inputType").value = "text";
-    $("locale").value = "ko-KR";
-    $("timezone").value = "Asia/Seoul";
   }
-
   function presetKiosk() {
     $("mode").value = "kiosk";
     $("domain").value = "kiosk";
-    $("deviceType").value = "web";
-    $("inputType").value = "text";
-    $("locale").value = "ko-KR";
-    $("timezone").value = "Asia/Seoul";
-    $("kioskType").value = "cafe";
-    $("storeId").value = $("storeId").value || "store_01";
-    $("dbPath").value = $("dbPath").value || "data/menu.db";
+    $("deviceType").value = "kiosk";
   }
 
+  // --- Persistence ---
   function saveState(patch) {
     const cur = loadState();
     const next = { ...(cur || {}), ...(patch || {}) };
     localStorage.setItem(storeKey, JSON.stringify(next));
   }
-
   function loadState() {
-    try {
-      const raw = localStorage.getItem(storeKey);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      return null;
-    }
+    try { return JSON.parse(localStorage.getItem(storeKey)); } catch(e){ return null; }
   }
-
   function restore() {
     const st = loadState();
     if (!st) return;
-
-    const lastBody = st.lastBody;
-    if (lastBody?.meta) {
-      const m = lastBody.meta;
+    if (st.lastBody?.meta) {
+      const m = st.lastBody.meta;
       $("clientSessionId").value = m.client_session_id || "sess_web_1";
       $("mode").value = m.mode || "edu";
-      $("domain").value = m.domain || "education";
-      $("locale").value = m.locale || "ko-KR";
-      $("timezone").value = m.timezone || "Asia/Seoul";
-      $("deviceType").value = m.device_type || "web";
-      $("inputType").value = m.input_type || "text";
-      $("kioskType").value = m.kiosk_type || "cafe";
-      $("storeId").value = m.store_id || "store_01";
-      $("dbPath").value = m.db_path || "data/menu.db";
-      $("siteNavDbPath").value = m.site_nav_db_path || "data/site_nav.sqlite3";
+      // ... restore other fields as needed
     }
-    // userMessage 값 복원 로직은 UX상 불편할 수 있어 생략하거나 선택 가능
-    // if (lastBody?.user_message) $("userMessage").value = lastBody.user_message;
-
-    const lastResp = st.lastResponse;
-    if (lastResp?.reply) setJson($("replyJson"), lastResp.reply);
-    if (lastResp?.state) setJson($("stateJson"), lastResp.state);
-    if (lastResp?.trace_id) $("traceId").textContent = lastResp.trace_id;
   }
 
-  // wire
+  // --- Events ---
   $("btnSend").addEventListener("click", send);
   $("btnClear").addEventListener("click", () => { clearAll(); saveState({}); });
   $("btnExamples").addEventListener("click", loadExamples);
   $("btnPresetEdu").addEventListener("click", presetEdu);
   $("btnPresetKiosk").addEventListener("click", presetKiosk);
 
-  // ✅ [수정] 엔터키 전송 시 Shift키 조합은 줄바꿈 허용
-  $("userMessage").addEventListener("keydown", (e) => {
+  // Auto-resize textarea & Enter key handling
+  const ta = $("userMessage");
+  ta.addEventListener("input", function() {
+    this.style.height = 'auto';
+    this.style.height = (this.scrollHeight) + 'px';
+  });
+  ta.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -668,7 +679,6 @@
   });
 
   restore();
-  setStatus("", "idle");
 </script>
 </body>
 </html>
