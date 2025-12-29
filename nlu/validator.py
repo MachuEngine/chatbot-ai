@@ -187,7 +187,22 @@ def _edu_make_llm_task(
             "additionalProperties": False,
             "properties": {
                 "text": {"type": "string"},
-                "ui_hints": {"type": "object", "additionalProperties": False},
+                # ✅ FIX: ui_hints가 additionalProperties:false 인데 properties가 없으면
+                #         ui_hints에 어떤 키도 넣을 수 없게 되어버림.
+                #         최소한 domain/intent (+ 확장 필드)를 명시해 일관성 유지.
+                "ui_hints": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "domain": {"type": "string"},
+                        "intent": {"type": "string"},
+                        # (선택) 사이트 네비게이션 RAG 등에서 쓰는 확장 힌트
+                        "menu_name": {"type": "string"},
+                        "breadcrumb": {"type": "string"},
+                        "url": {"type": "string"},
+                    },
+                    "required": ["domain", "intent"],
+                },
             },
             "required": ["text", "ui_hints"],
         },
