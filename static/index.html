@@ -1,0 +1,641 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>chatbot-ai API Tester</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #0f1520;
+      --panel2:#0d1320;
+      --text: #e6eef7;
+      --muted:#9fb0c3;
+      --line:#1f2b3a;
+      --accent:#7aa2f7;
+      --good:#9ece6a;
+      --warn:#e0af68;
+      --bad:#f7768e;
+      --chip:#141c2a;
+      --shadow: 0 8px 30px rgba(0,0,0,.35);
+      --radius: 14px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", "Apple SD Gothic Neo", Arial, "Helvetica Neue", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin:0;
+      font-family: var(--sans);
+      background: radial-gradient(1200px 800px at 10% 10%, rgba(122,162,247,.12), transparent 60%),
+                  radial-gradient(900px 700px at 90% 20%, rgba(158,206,106,.10), transparent 60%),
+                  var(--bg);
+      color: var(--text);
+    }
+    header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(15,21,32,.65);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top:0;
+      z-index: 5;
+    }
+    header .row {
+      display:flex; align-items:center; gap:12px; flex-wrap: wrap;
+    }
+    .title {
+      font-weight: 700;
+      letter-spacing: .2px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .pill {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(122,162,247,.14);
+      border: 1px solid rgba(122,162,247,.25);
+      color: var(--text);
+    }
+    .container {
+      display:grid;
+      grid-template-columns: 1.25fr .95fr;
+      gap: 14px;
+      padding: 14px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    @media (max-width: 1100px){
+      .container { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: linear-gradient(180deg, rgba(15,21,32,.92), rgba(12,17,26,.92));
+      border: 1px solid rgba(31,43,58,.9);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .card .hd {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display:flex; align-items:center; justify-content: space-between;
+      background: rgba(13,19,32,.75);
+    }
+    .card .hd .left { display:flex; align-items:center; gap:10px; }
+    .card .hd .h {
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .card .bd { padding: 14px; }
+    .muted { color: var(--muted); }
+    .btns { display:flex; gap:8px; flex-wrap: wrap; }
+    button {
+      border: 1px solid rgba(31,43,58,.9);
+      background: rgba(20,28,42,.85);
+      color: var(--text);
+      padding: 9px 12px;
+      border-radius: 12px;
+      cursor:pointer;
+      transition: .15s ease;
+      font-weight: 650;
+      font-size: 13px;
+    }
+    button:hover { border-color: rgba(122,162,247,.55); transform: translateY(-1px); }
+    button.primary {
+      background: linear-gradient(180deg, rgba(122,162,247,.35), rgba(122,162,247,.18));
+      border-color: rgba(122,162,247,.55);
+    }
+    button.bad {
+      background: rgba(247,118,142,.12);
+      border-color: rgba(247,118,142,.35);
+    }
+    button.good {
+      background: rgba(158,206,106,.12);
+      border-color: rgba(158,206,106,.35);
+    }
+    input, textarea, select {
+      width: 100%;
+      padding: 10px 11px;
+      border-radius: 12px;
+      border: 1px solid rgba(31,43,58,.9);
+      background: rgba(8,12,18,.55);
+      color: var(--text);
+      outline: none;
+      font-family: var(--sans);
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .field { display:flex; flex-direction: column; gap:6px; margin-bottom: 10px; }
+    .label {
+      font-size: 12px;
+      color: var(--muted);
+      display:flex; align-items:center; justify-content: space-between;
+      gap:10px;
+    }
+    .chip {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(20,28,42,.9);
+      border: 1px solid rgba(31,43,58,.9);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .chat {
+      height: calc(100vh - 190px);
+      min-height: 520px;
+      display:flex;
+      flex-direction: column;
+    }
+    .msgs {
+      flex:1;
+      overflow:auto;
+      padding: 14px;
+      display:flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .msg {
+      max-width: 86%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(31,43,58,.9);
+      background: rgba(8,12,18,.45);
+      white-space: pre-wrap;
+      line-height: 1.42;
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: rgba(122,162,247,.12);
+      border-color: rgba(122,162,247,.28);
+    }
+    .msg.bot {
+      align-self: flex-start;
+      background: rgba(158,206,106,.10);
+      border-color: rgba(158,206,106,.25);
+    }
+    .metaRow {
+      margin-top: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: rgba(230,238,247,.75);
+    }
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 12px;
+      display:flex;
+      flex-direction: column;
+      gap:10px;
+      background: rgba(13,19,32,.55);
+    }
+    .composer .row {
+      display:flex; gap:10px; align-items: flex-end;
+    }
+    .composer textarea { min-height: 54px; }
+    .split {
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: rgba(8,12,18,.55);
+      border: 1px solid rgba(31,43,58,.9);
+      border-radius: 12px;
+      padding: 10px;
+      white-space: pre;
+      overflow:auto;
+      max-height: 280px;
+    }
+    .status {
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(31,43,58,.9);
+      background: rgba(8,12,18,.45);
+    }
+    .status.ok { border-color: rgba(158,206,106,.35); }
+    .status.err { border-color: rgba(247,118,142,.35); }
+    a { color: var(--accent); }
+  </style>
+</head>
+
+<body>
+<header>
+  <div class="row">
+    <div class="title">
+      <span>chatbot-ai API Tester</span>
+      <span class="pill">POST /api/chat</span>
+    </div>
+    <div class="muted" style="font-size:12px;">
+      edu / kiosk + 옵션질문 + edu RAG 메뉴위치까지 확인용
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <!-- Left: Chat -->
+  <div class="card chat">
+    <div class="hd">
+      <div class="left">
+        <div class="h">Chat</div>
+        <span class="chip" id="endpointChip">http://localhost:8000/api/chat</span>
+      </div>
+      <div class="btns">
+        <button class="good" id="btnExamples">Load Examples</button>
+        <button class="bad" id="btnClear">Clear</button>
+      </div>
+    </div>
+
+    <div class="msgs" id="msgs"></div>
+
+    <div class="composer">
+      <div class="row">
+        <div style="flex:1">
+          <div class="label">user_message</div>
+          <textarea id="userMessage" placeholder="예) 아메리카노 아이스로 라지 사이즈 두 개 주세요 / 연음이 뭐야? / 학습 단어 목록 메뉴가 어디에 있어요?"></textarea>
+        </div>
+        <div style="width:170px">
+          <div class="label">Send</div>
+          <button class="primary" id="btnSend" style="width:100%;">Send</button>
+        </div>
+      </div>
+
+      <div class="split">
+        <div class="status" id="statusBox">
+          status: idle
+        </div>
+        <div class="status">
+          trace_id: <span id="traceId" class="muted">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Controls / JSON -->
+  <div class="card">
+    <div class="hd">
+      <div class="left">
+        <div class="h">Meta / Debug</div>
+        <span class="chip">ui_hints / state 확인</span>
+      </div>
+      <div class="btns">
+        <button id="btnPresetEdu">Preset: EDU</button>
+        <button id="btnPresetKiosk">Preset: KIOSK</button>
+      </div>
+    </div>
+
+    <div class="bd">
+      <div class="field">
+        <div class="label">API endpoint <span class="chip">변경 가능</span></div>
+        <input id="endpoint" value="http://localhost:8000/api/chat" />
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <div class="label">client_session_id</div>
+          <input id="clientSessionId" value="sess_web_1" />
+        </div>
+        <div class="field">
+          <div class="label">mode</div>
+          <select id="mode">
+            <option value="edu">edu</option>
+            <option value="kiosk">kiosk</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <div class="label">domain (optional)</div>
+          <input id="domain" value="education" placeholder="education / kiosk (optional)" />
+        </div>
+        <div class="field">
+          <div class="label">kiosk_type (kiosk only)</div>
+          <input id="kioskType" value="cafe" placeholder="cafe" />
+        </div>
+      </div>
+
+      <div class="grid3">
+        <div class="field">
+          <div class="label">store_id (kiosk only)</div>
+          <input id="storeId" value="store_01" />
+        </div>
+        <div class="field">
+          <div class="label">device_type</div>
+          <select id="deviceType">
+            <option value="web">web</option>
+            <option value="kiosk">kiosk</option>
+            <option value="mobile">mobile</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="label">input_type</div>
+          <select id="inputType">
+            <option value="text">text</option>
+            <option value="voice">voice</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <div class="label">locale</div>
+          <input id="locale" value="ko-KR" />
+        </div>
+        <div class="field">
+          <div class="label">timezone</div>
+          <input id="timezone" value="Asia/Seoul" />
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <div class="label">db_path (kiosk 메뉴DB)</div>
+          <input id="dbPath" value="data/menu.db" />
+        </div>
+        <div class="field">
+          <div class="label">site_nav_db_path (edu RAG)</div>
+          <input id="siteNavDbPath" value="data/site_nav.sqlite3" />
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="label">Extra meta JSON (merge)</div>
+        <textarea id="extraMeta" placeholder='예) {"foo":"bar"}'></textarea>
+      </div>
+
+      <hr style="border:0;border-top:1px solid var(--line); margin:14px 0;" />
+
+      <div class="grid2">
+        <div>
+          <div class="label">Last Reply JSON</div>
+          <div class="code" id="replyJson">{}</div>
+        </div>
+        <div>
+          <div class="label">Last State JSON</div>
+          <div class="code" id="stateJson">{}</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;" class="muted">
+        <div style="font-size:12px; line-height:1.5;">
+          <b>CORS 이슈</b>로 막히면:
+          <ol style="margin:6px 0 0 18px; padding:0;">
+            <li>백엔드에 CORS 허용 추가</li>
+            <li>또는 이 HTML을 백엔드와 같은 origin에서 서빙 (예: FastAPI static)</li>
+          </ol>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  const storeKey = "chatbot_ai_tester_v1";
+
+  function nowTime() {
+    const d = new Date();
+    return d.toLocaleTimeString();
+  }
+
+  function addMsg(role, text, metaLine) {
+    const el = document.createElement("div");
+    el.className = "msg " + (role === "user" ? "user" : "bot");
+    el.textContent = text || "";
+    if (metaLine) {
+      const meta = document.createElement("div");
+      meta.className = "metaRow";
+      meta.textContent = metaLine;
+      el.appendChild(meta);
+    }
+    $("msgs").appendChild(el);
+    $("msgs").scrollTop = $("msgs").scrollHeight;
+  }
+
+  function setStatus(kind, text) {
+    const box = $("statusBox");
+    box.className = "status " + (kind || "");
+    box.textContent = "status: " + text;
+  }
+
+  function setJson(el, obj) {
+    el.textContent = JSON.stringify(obj ?? {}, null, 2);
+  }
+
+  function buildMeta() {
+    let extra = {};
+    try {
+      const raw = $("extraMeta").value.trim();
+      if (raw) extra = JSON.parse(raw);
+    } catch (e) {
+      // keep extra empty
+    }
+
+    const meta = {
+      client_session_id: $("clientSessionId").value.trim(),
+      mode: $("mode").value.trim(),
+      domain: $("domain").value.trim(),
+      locale: $("locale").value.trim(),
+      timezone: $("timezone").value.trim(),
+      device_type: $("deviceType").value.trim(),
+      input_type: $("inputType").value.trim(),
+      ...extra,
+    };
+
+    // kiosk specific
+    const m = meta.mode;
+    if (m === "kiosk") {
+      meta.kiosk_type = $("kioskType").value.trim() || "cafe";
+      meta.store_id = $("storeId").value.trim() || "store_01";
+      meta.db_path = $("dbPath").value.trim() || "data/menu.db";
+    }
+
+    // edu RAG db path (optional; server may ignore)
+    meta.site_nav_db_path = $("siteNavDbPath").value.trim() || "data/site_nav.sqlite3";
+
+    // drop empty keys
+    Object.keys(meta).forEach(k => {
+      if (meta[k] === "" || meta[k] == null) delete meta[k];
+    });
+
+    return meta;
+  }
+
+  async function send() {
+    const endpoint = $("endpoint").value.trim();
+    $("endpointChip").textContent = endpoint;
+
+    const user_message = $("userMessage").value.trim();
+    if (!user_message) return;
+
+    const meta = buildMeta();
+
+    addMsg("user", user_message, `${nowTime()}  meta.mode=${meta.mode || "-"}  domain=${meta.domain || "-"}`);
+    setStatus("", "sending...");
+
+    const body = { user_message, meta };
+
+    // persist
+    saveState({ lastBody: body });
+
+    try {
+      const t0 = performance.now();
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const dt = Math.round(performance.now() - t0);
+
+      const json = await res.json().catch(() => ({}));
+      const trace = json?.trace_id || json?.detail?.trace_id || "-";
+      $("traceId").textContent = trace;
+
+      if (!res.ok) {
+        addMsg("bot", `HTTP ${res.status}\n` + JSON.stringify(json, null, 2), `${nowTime()}  ${dt}ms`);
+        setStatus("err", `error (HTTP ${res.status})`);
+        setJson($("replyJson"), json?.reply || json?.detail || json);
+        setJson($("stateJson"), json?.state || {});
+        saveState({ lastResponse: json });
+        return;
+      }
+
+      const reply = json?.reply || {};
+      const state = json?.state || {};
+      const text = reply?.text ?? JSON.stringify(reply, null, 2);
+
+      // show bot message + small meta
+      const intent = reply?.ui_hints?.intent || state?.active_intent || "-";
+      const actionType = reply?.action_type || "-";
+      addMsg("bot", text, `${nowTime()}  ${dt}ms  action_type=${actionType}  intent=${intent}`);
+
+      setStatus("ok", "ok");
+      setJson($("replyJson"), reply);
+      setJson($("stateJson"), state);
+
+      saveState({ lastResponse: json });
+
+    } catch (err) {
+      addMsg("bot", String(err), `${nowTime()}`);
+      setStatus("err", "network error (CORS?)");
+    }
+  }
+
+  function clearAll() {
+    $("msgs").innerHTML = "";
+    $("replyJson").textContent = "{}";
+    $("stateJson").textContent = "{}";
+    $("traceId").textContent = "-";
+    setStatus("", "idle");
+  }
+
+  function loadExamples() {
+    const examples = [
+      // kiosk
+      { mode:"kiosk", domain:"kiosk", msg:"아메리카노 아이스로 라지 사이즈 두 개 주세요" },
+      { mode:"kiosk", domain:"kiosk", msg:"아메리카노 1개 주세요" },
+      // edu
+      { mode:"edu", domain:"education", msg:"연음이 뭐야?" },
+      { mode:"edu", domain:"education", msg:"연음 발음이라는게 뭐고" },
+      // edu RAG nav
+      { mode:"edu", domain:"education", msg:"학습 단어 목록 메뉴가 어디에 있어요?" },
+      { mode:"edu", domain:"education", msg:"발음 평가 페이지는 어디서 들어가요?" },
+    ];
+
+    const pick = examples[Math.floor(Math.random() * examples.length)];
+    $("mode").value = pick.mode;
+    $("domain").value = pick.domain;
+    $("userMessage").value = pick.msg;
+
+    // apply preset defaults
+    if (pick.mode === "kiosk") presetKiosk();
+    else presetEdu();
+  }
+
+  function presetEdu() {
+    $("mode").value = "edu";
+    $("domain").value = "education";
+    $("deviceType").value = "web";
+    $("inputType").value = "text";
+    $("locale").value = "ko-KR";
+    $("timezone").value = "Asia/Seoul";
+  }
+
+  function presetKiosk() {
+    $("mode").value = "kiosk";
+    $("domain").value = "kiosk";
+    $("deviceType").value = "web";
+    $("inputType").value = "text";
+    $("locale").value = "ko-KR";
+    $("timezone").value = "Asia/Seoul";
+    $("kioskType").value = "cafe";
+    $("storeId").value = $("storeId").value || "store_01";
+    $("dbPath").value = $("dbPath").value || "data/menu.db";
+  }
+
+  function saveState(patch) {
+    const cur = loadState();
+    const next = { ...(cur || {}), ...(patch || {}) };
+    localStorage.setItem(storeKey, JSON.stringify(next));
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function restore() {
+    const st = loadState();
+    if (!st) return;
+
+    const lastBody = st.lastBody;
+    if (lastBody?.meta) {
+      const m = lastBody.meta;
+      $("clientSessionId").value = m.client_session_id || "sess_web_1";
+      $("mode").value = m.mode || "edu";
+      $("domain").value = m.domain || "education";
+      $("locale").value = m.locale || "ko-KR";
+      $("timezone").value = m.timezone || "Asia/Seoul";
+      $("deviceType").value = m.device_type || "web";
+      $("inputType").value = m.input_type || "text";
+      $("kioskType").value = m.kiosk_type || "cafe";
+      $("storeId").value = m.store_id || "store_01";
+      $("dbPath").value = m.db_path || "data/menu.db";
+      $("siteNavDbPath").value = m.site_nav_db_path || "data/site_nav.sqlite3";
+    }
+    if (lastBody?.user_message) $("userMessage").value = lastBody.user_message;
+
+    const lastResp = st.lastResponse;
+    if (lastResp?.reply) setJson($("replyJson"), lastResp.reply);
+    if (lastResp?.state) setJson($("stateJson"), lastResp.state);
+    if (lastResp?.trace_id) $("traceId").textContent = lastResp.trace_id;
+  }
+
+  // wire
+  $("btnSend").addEventListener("click", send);
+  $("btnClear").addEventListener("click", () => { clearAll(); saveState({}); });
+  $("btnExamples").addEventListener("click", loadExamples);
+  $("btnPresetEdu").addEventListener("click", presetEdu);
+  $("btnPresetKiosk").addEventListener("click", presetKiosk);
+
+  $("userMessage").addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") send();
+  });
+
+  restore();
+  setStatus("", "idle");
+</script>
+</body>
+</html>
