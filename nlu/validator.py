@@ -72,7 +72,7 @@ def _normalize_temperature_value(v: Any) -> Any:
     s = v.strip().lower()
     if s in {"iced", "ice", "아이스", "차가운", "차가움", "차가운거", "차가운걸"}:
         return "ice"
-    if s in {"hot", "뜨거운", "뜨거움", "핫", "따뜻한", "따뜻한거", "따뜻한걸"}:
+    if s in {"hot", "뜨거운", "뜨거움", "핫", "따뜻한", "따뜻한거", "따뜻한걸", "따듯", "따듯한", "따듯한거", "따듯한걸"}:
         return "hot"
     return v
 
@@ -81,17 +81,16 @@ def _normalize_temperature_value(v: Any) -> Any:
 # item_name recovery (핵심)
 # ----------------------------
 
-# 너무 공격적으로 정규화하면 오탐이 생기니, "옵션/예절/수량" 토큰만 최소 제거
 _ITEM_NOISE_PATTERNS: List[Tuple[str, str]] = [
     # temperature-ish
     (r"(아이스|차가운(거|걸)?|시원한(거|걸)?|iced|ice)\b", " "),
-    (r"(뜨거운(거|걸)?|따뜻한(거|걸)?|hot|핫)\b", " "),
+    (r"(뜨거운(거|걸)?|따뜻한(거|걸)?|따듯(한)?(거|걸)?|hot|핫)\b", " "),
     # size-ish
     (r"(스몰|small|미디움|medium|라지|large)\b", " "),
     (r"\b(S|M|L)\b", " "),
     (r"(작은(거|걸)?|중간(거|걸)?|큰(거|걸)?|보통(거|걸)?)\b", " "),
     (r"(사이즈|size)\b", " "),
-    # quantity-ish (너무 많이 지우지 않기: '두개/2개/두 잔' 정도만)
+    # quantity-ish
     (r"(두\s*개|2\s*개|두\s*잔|2\s*잔)\b", " "),
     (r"(한\s*개|1\s*개|한\s*잔|1\s*잔)\b", " "),
     (r"(세\s*개|3\s*개|세\s*잔|3\s*잔)\b", " "),
@@ -99,8 +98,7 @@ _ITEM_NOISE_PATTERNS: List[Tuple[str, str]] = [
     (r"(주세요|주문|부탁|할게(요)?|줘|주실래요|좀)\b", " "),
 ]
 
-# option_groups가 이미 추출된 경우, 그 옵션에 대응하는 표현을 item_name에서 한번 더 제거(복구 성공률↑)
-_TEMP_WORDS = ["아이스", "차가운", "시원한", "iced", "ice", "뜨거운", "따뜻한", "hot", "핫"]
+_TEMP_WORDS = ["아이스", "차가운", "시원한", "iced", "ice", "뜨거운", "따뜻한", "따듯", "hot", "핫"]
 _SIZE_WORDS = ["스몰", "small", "미디움", "medium", "라지", "large", "작은", "중간", "큰", "보통", "S", "M", "L"]
 
 
@@ -143,7 +141,6 @@ def _recover_item_name_candidates(item_name: Any, option_groups: Dict[str, Any])
     if s2 and s2 not in cands:
         cands.append(s2)
 
-    # 너무 짧으면 제외(예: '아이스'만 남는 등)
     out: List[str] = []
     for x in cands:
         if len(x) >= 2:
@@ -174,6 +171,8 @@ def _edu_make_llm_task(
         "input_type": meta.get("input_type"),
     }
 
+    # ✅ OpenAI strict json_schema: properties를 늘리면 required에 "전부" 넣으라고 400이 날 수 있음.
+    #    따라서 ui_hints는 domain/intent만 허용(최소 스키마)로 유지.
     return {
         "type": "edu_answer_generation",
         "input": {
@@ -187,19 +186,12 @@ def _edu_make_llm_task(
             "additionalProperties": False,
             "properties": {
                 "text": {"type": "string"},
-                # ✅ FIX: ui_hints가 additionalProperties:false 인데 properties가 없으면
-                #         ui_hints에 어떤 키도 넣을 수 없게 되어버림.
-                #         최소한 domain/intent (+ 확장 필드)를 명시해 일관성 유지.
                 "ui_hints": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
                         "domain": {"type": "string"},
                         "intent": {"type": "string"},
-                        # (선택) 사이트 네비게이션 RAG 등에서 쓰는 확장 힌트
-                        "menu_name": {"type": "string"},
-                        "breadcrumb": {"type": "string"},
-                        "url": {"type": "string"},
                     },
                     "required": ["domain", "intent"],
                 },
@@ -257,7 +249,7 @@ def validate_and_build_action(
             name=item_name,
         )
 
-        # 2) 실패하면 복구 후보로 재시도 (핵심)
+        # 2) 실패하면 복구 후보로 재시도
         used_name = item_name
         recovered = False
         if not item:
@@ -295,12 +287,9 @@ def validate_and_build_action(
             new_state = _merge_state(state, {"debug_last_reason": "menu_not_found"})
             return action, new_state
 
-        # 이후 로직에서는 "실제로 찾은 메뉴명(used_name)" 기준으로 진행
-        # (required option group 정책도 실제 메뉴 기준이 안전)
-        # slots의 item_name을 바꾸진 않지만, 로그/정책에는 used_name을 쓸 수 있게 req/slots를 살짝 보정
+        # policy 용 item_name 보정
         slots_for_policy = dict(slots or {})
         if recovered:
-            # 최소 영향: policy가 item_name을 보게 된다면 recovered name으로 보이게
             slots_for_policy["item_name"] = {"value": used_name, "confidence": 0.6}
 
         required_groups = get_required_option_groups_for_add_item(
@@ -345,11 +334,11 @@ def validate_and_build_action(
                 }
             }
 
-            # ✅ follow-up에 필요한 최소 슬롯만 저장(오염 방지)
+            # ✅ follow-up에 필요한 최소 슬롯만 저장 + option_groups는 wrapper로 통일(빈 {} 사고 방지)
             slots_min = {
                 "item_name": slots.get("item_name"),
                 "quantity": slots.get("quantity"),
-                "option_groups": option_groups,  # dict로 고정
+                "option_groups": {"value": dict(option_groups), "confidence": 0.9},
                 "notes": slots.get("notes"),
             }
 
@@ -397,7 +386,7 @@ def validate_and_build_action(
         )
         return action, new_state
 
-    # education: 기존 유지
+    # education
     if domain == "education":
         new_state = _merge_state(
             state,

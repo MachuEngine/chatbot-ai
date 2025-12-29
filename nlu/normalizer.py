@@ -70,9 +70,6 @@ def _looks_like_new_order(msg: str) -> bool:
     """
     pending 옵션 질문 중에 사용자가 새 주문을 말한 것으로 보이면
     pending followup을 해제해서 "새 주문"으로 흘려보내기 위한 휴리스틱.
-
-    - 너무 공격적으로 잡으면 옵션 답변을 새 주문으로 오해할 수 있으니
-      트리거는 최소한으로 둔다.
     """
     m = (msg or "").strip()
     if not m:
@@ -184,6 +181,80 @@ def _should_keep_new_topic_when_not_followup(user_message: str, topic_new_val: A
     return False
 
 
+# ----------------------------
+# kiosk option_groups helpers
+# ----------------------------
+
+def _option_groups_to_dict(v: Any) -> Dict[str, Any]:
+    """
+    option_groups 슬롯/값을 dict로 정규화.
+    허용 형태:
+      - {"value": {...}}
+      - {...}
+      - [{"group":"size","value":"S"}, ...]
+      - None
+    """
+    if v is None:
+        return {}
+
+    # slot wrapper
+    if isinstance(v, dict) and "value" in v:
+        inner = v.get("value")
+        if isinstance(inner, dict):
+            return dict(inner)
+        if isinstance(inner, list):
+            out: Dict[str, Any] = {}
+            for it in inner:
+                if isinstance(it, dict) and isinstance(it.get("group"), str):
+                    out[it["group"].strip()] = it.get("value")
+            return out
+        return {}
+
+    # plain dict mapping
+    if isinstance(v, dict):
+        return dict(v)
+
+    # list form
+    if isinstance(v, list):
+        out: Dict[str, Any] = {}
+        for it in v:
+            if isinstance(it, dict) and isinstance(it.get("group"), str):
+                out[it["group"].strip()] = it.get("value")
+        return out
+
+    return {}
+
+
+def _wrap_option_groups(og: Dict[str, Any], conf: float = 0.9) -> Dict[str, Any]:
+    return {"value": dict(og or {}), "confidence": float(conf)}
+
+
+def _choice_match(value: Any, choices: Any) -> Optional[str]:
+    """
+    pending_choices 안에서 value를 최대한 맞춰서 반환.
+    - 공백/대소문자 무시
+    - "따듯" 같은 표현은 여기서 해결하지 않고, value 자체가 'hot/ice/S/M/L'로 들어온 케이스를 살린다.
+    """
+    if not isinstance(choices, list):
+        return None
+    if value is None:
+        return None
+
+    v = str(value).strip()
+    if not v:
+        return None
+
+    v_norm = re.sub(r"\s+", "", v).lower()
+
+    for c in choices:
+        if not isinstance(c, str):
+            continue
+        c_norm = re.sub(r"\s+", "", c).lower()
+        if c_norm == v_norm:
+            return c
+    return None
+
+
 def apply_session_rules(
     state: Optional[Dict[str, Any]],
     nlu: Optional[Dict[str, Any]],
@@ -224,7 +295,8 @@ def apply_session_rules(
                 s2n = re.sub(r"[^a-z0-9가-힣]", "", s2)
                 if any(k in s2n for k in ["아이스", "ice", "iced", "차가", "시원", "콜드", "cold"]):
                     return "ice"
-                if any(k in s2n for k in ["뜨거", "따뜻", "핫", "hot"]):
+                # ✅ 따듯/따뜻 모두 대응
+                if any(k in s2n for k in ["뜨거", "따뜻", "따듯", "핫", "hot"]):
                     return "hot"
                 return None
 
@@ -277,7 +349,31 @@ def apply_session_rules(
                 if temp_candidate is not None:
                     extra_updates["temperature"] = temp_candidate
 
-            # choices가 있으면 그 안에서 최대한 맞추기(대소문자/공백 무시) - pending_group 값에만 적용
+            # ----------------------------
+            # ✅ FIX: 휴리스틱 실패 시에도 LLM option_groups 후보를 살린다
+            # ----------------------------
+            if coerced is None and not extra_updates:
+                og_from_llm = _option_groups_to_dict(slots_in.get("option_groups"))
+                if pending_group and pending_group in og_from_llm:
+                    cand = og_from_llm.get(pending_group)
+                    matched = _choice_match(cand, pending_choices)
+                    # choices가 없으면 cand를 그대로 쓰되, 최소한 non-empty면 채택
+                    if matched is not None:
+                        coerced = matched
+                        log_event(
+                            trace_id,
+                            "kiosk_pending_take_llm_option_group",
+                            {"pending_group": pending_group, "picked": coerced, "via": "choices_match"},
+                        )
+                    elif cand is not None and str(cand).strip() != "":
+                        coerced = str(cand).strip()
+                        log_event(
+                            trace_id,
+                            "kiosk_pending_take_llm_option_group",
+                            {"pending_group": pending_group, "picked": coerced, "via": "raw"},
+                        )
+
+            # choices가 있으면 그 안에서 최대한 맞추기(대소문자/공백 무시) - user_message 직접 매칭
             if coerced is None and isinstance(pending_choices, list):
                 msg_l = re.sub(r"\s+", "", msg).lower()
                 for c in pending_choices:
@@ -311,19 +407,12 @@ def apply_session_rules(
                 # NLU가 옵션 답변을 item_name으로 오염시키는 케이스 방지
                 slots_in.pop("item_name", None)
 
-                # option_groups를 dict로 정규화
-                og_any = slots_in.get("option_groups")
-                og_val = _slot_value(og_any)
-                if isinstance(og_val, list):
-                    og_dict: Dict[str, Any] = {}
-                    for it in og_val:
-                        if isinstance(it, dict) and isinstance(it.get("group"), str):
-                            og_dict[it["group"].strip()] = it.get("value")
-                elif isinstance(og_val, dict):
-                    v = og_val.get("value")
-                    og_dict = dict(v) if isinstance(v, dict) else dict(og_val)
-                else:
-                    og_dict = {}
+                # ✅ prev option_groups + 이번 option_groups를 merge해서 유지
+                prev_og = _option_groups_to_dict(prev_slots.get("option_groups"))
+                cur_og = _option_groups_to_dict(slots_in.get("option_groups"))
+
+                og_dict: Dict[str, Any] = dict(prev_og)
+                og_dict.update(cur_og)  # 이번 턴에서 나온 값이 있으면 덮어씀
 
                 # pending_group 값
                 if coerced is not None and pending_group:
@@ -333,7 +422,11 @@ def apply_session_rules(
                 for k, v in extra_updates.items():
                     og_dict[k] = v
 
-                slots_in["option_groups"] = {"value": og_dict, "confidence": 0.9}
+                slots_in["option_groups"] = _wrap_option_groups(og_dict, conf=0.9)
+
+                # (선택) quantity가 비어있으면 prev를 유지
+                if "quantity" not in slots_in and "quantity" in prev_slots:
+                    slots_in["quantity"] = prev_slots.get("quantity")
 
         # ✅ 슬롯 오염 방지:
         # kiosk(education 제외)는 "pending followup"일 때만 prev_slots carry
