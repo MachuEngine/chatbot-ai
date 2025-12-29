@@ -1,4 +1,3 @@
-# nlu/llm_client.py
 from __future__ import annotations
 
 import os
@@ -117,7 +116,11 @@ def build_slots_schema(domain: str, intent: str, domain_schema: Dict[str, Any]) 
         },
         "required": [
             "name",
-            "value_str", "value_int", "value_num", "value_bool", "value_option_groups",
+            "value_str",
+            "value_int",
+            "value_num",
+            "value_bool",
+            "value_option_groups",
             "confidence",
         ],
     }
@@ -203,7 +206,12 @@ def _safe_meta_dump(meta: Any) -> Any:
     return str(meta)
 
 
-def _openai_nlu_two_stage(req, state: Dict[str, Any], candidates: List[Dict[str, Any]], trace_id: Optional[str]) -> Dict[str, Any]:
+def _openai_nlu_two_stage(
+    req,
+    state: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+    trace_id: Optional[str],
+) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY is empty")
@@ -213,9 +221,17 @@ def _openai_nlu_two_stage(req, state: Dict[str, Any], candidates: List[Dict[str,
     msg = (getattr(req, "user_message", "") or "").strip()
     meta = getattr(req, "meta", None)
 
+    # ✅ NEW: meta 밖 edu payload (api/chat.py에서 하위호환 흡수 후 req에 반영됨)
+    edu_payload = {
+        "content": getattr(req, "content", None),
+        "student_answer": getattr(req, "student_answer", None),
+        "topic": getattr(req, "topic", None),
+    }
+
     base_user = {
         "user_message": msg,
         "meta": _safe_meta_dump(meta),
+        "edu_payload": edu_payload,  # ✅ 추가
         "state_summary": {
             "turn_index": state.get("turn_index"),
             "current_domain": state.get("current_domain"),
@@ -226,11 +242,18 @@ def _openai_nlu_two_stage(req, state: Dict[str, Any], candidates: List[Dict[str,
         "candidates": candidates,
     }
 
+    mode = (getattr(meta, "mode", "") or "").lower().strip()
     system1 = (
-        "You are an NLU router. "
+        "You are an NLU router."
+        "You should use a friendly and gentle tone of voice."
         "Choose the best (domain, intent) ONLY from the given candidates. "
         "Be conservative. Do not invent new domains or intents."
     )
+    if mode in ("edu", "education"):
+        system1 += (
+            "\nIMPORTANT: The client is in EDU mode. "
+            "You must only respond for the purpose of learning Korean."
+        )
     schema1 = build_domain_intent_schema(candidates)
 
     out1 = _openai_call_json_schema(
@@ -248,12 +271,16 @@ def _openai_nlu_two_stage(req, state: Dict[str, Any], candidates: List[Dict[str,
     intent_conf = float(out1.get("intent_confidence") or 0.0)
 
     if log_event and trace_id:
-        log_event(trace_id, "nlu_openai_stage1_ok", {
-            "model": model,
-            "domain": domain,
-            "intent": intent,
-            "intent_confidence": intent_conf,
-        })
+        log_event(
+            trace_id,
+            "nlu_openai_stage1_ok",
+            {
+                "model": model,
+                "domain": domain,
+                "intent": intent,
+                "intent_confidence": intent_conf,
+            },
+        )
 
     domain_schema = _schema_for_domain(domain)
 
@@ -267,8 +294,9 @@ def _openai_nlu_two_stage(req, state: Dict[str, Any], candidates: List[Dict[str,
 
     schema2 = build_slots_schema(domain, intent, domain_schema)
 
-    # ✅ intent별 슬롯 가이드 (핵심)
-    slot_guidance = {}
+    # ✅ intent별 슬롯 가이드 (키오스크 rule 유지 + education도 보강)
+    slot_guidance: Dict[str, Any] = {}
+
     if domain == "kiosk":
         slot_guidance = {
             "RULES": [
@@ -278,6 +306,21 @@ def _openai_nlu_two_stage(req, state: Dict[str, Any], candidates: List[Dict[str,
                 "- If intent is ask_recommendation: put it into temperature_hint ('iced'|'hot'), NOT into option_groups.",
                 "For 'iced/hot' values, use EXACT strings: 'iced' or 'hot'.",
                 "Do not fill both temperature_hint and option_groups.temperature for the same message unless explicitly needed by schema (prefer the rule above).",
+            ]
+        }
+    elif domain == "education":
+        slot_guidance = {
+            "RULES": [
+                "Use edu_payload fields if present.",
+                "If edu_payload.content is provided and slot name 'content' exists, use it for that slot.",
+                "If edu_payload.student_answer is provided and slot name 'student_answer' exists, use it for that slot.",
+                "If edu_payload.topic is provided and slot name 'topic' exists, use it for that slot.",
+                "Do NOT hallucinate missing text. If the user requests summarization/rewriting but content is missing, leave content null and keep confidence low.",
+                "Do NOT invent facts.",
+                "If the user asks to evaluate/grade feedback and the answer text is included in user_message, extract that part into slot 'student_answer'.",
+                "If the user asks to summarize/rewrite/expand and the source text is included in user_message, extract that part into slot 'content'.",
+                "If the user explicitly mentions a topic word (e.g., '연음', '받침', '동화'), extract it into slot 'topic'.",
+                "If unsure, keep value_* as null with low confidence.",
             ]
         }
 
@@ -347,11 +390,15 @@ def _openai_nlu_two_stage(req, state: Dict[str, Any], candidates: List[Dict[str,
         slots = {}
 
     if log_event and trace_id:
-        log_event(trace_id, "nlu_openai_stage2_ok", {
-            "domain": domain,
-            "intent": intent,
-            "slots_keys": list(slots.keys()),
-        })
+        log_event(
+            trace_id,
+            "nlu_openai_stage2_ok",
+            {
+                "domain": domain,
+                "intent": intent,
+                "slots_keys": list(slots.keys()),
+            },
+        )
 
     return {
         "domain": domain,
@@ -372,12 +419,16 @@ def nlu_with_llm(
     mode = (getattr(meta, "mode", "") or "").lower().strip()
 
     if log_event and trace_id:
-        log_event(trace_id, "nlu_enter", {
-            "mode": mode,
-            "msg_len": len(msg),
-            "candidates_count": len(candidates) if isinstance(candidates, list) else None,
-            "state_turn_index": state.get("turn_index") if isinstance(state, dict) else None,
-        })
+        log_event(
+            trace_id,
+            "nlu_enter",
+            {
+                "mode": mode,
+                "msg_len": len(msg),
+                "candidates_count": len(candidates) if isinstance(candidates, list) else None,
+                "state_turn_index": state.get("turn_index") if isinstance(state, dict) else None,
+            },
+        )
 
     enable_llm = os.getenv("OPENAI_ENABLE_LLM", "").strip() == "1"
     has_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
@@ -386,28 +437,40 @@ def nlu_with_llm(
         try:
             out = _openai_nlu_two_stage(req, state, candidates, trace_id)
             if log_event and trace_id:
-                log_event(trace_id, "nlu_exit", {
-                    "provider": "openai",
-                    "domain": out.get("domain"),
-                    "intent": out.get("intent"),
-                    "intent_confidence": out.get("intent_confidence"),
-                    "slots_keys": list((out.get("slots") or {}).keys()) if isinstance(out.get("slots"), dict) else [],
-                })
+                log_event(
+                    trace_id,
+                    "nlu_exit",
+                    {
+                        "provider": "openai",
+                        "domain": out.get("domain"),
+                        "intent": out.get("intent"),
+                        "intent_confidence": out.get("intent_confidence"),
+                        "slots_keys": list((out.get("slots") or {}).keys()) if isinstance(out.get("slots"), dict) else [],
+                    },
+                )
             return out
         except Exception as e:
             if log_event and trace_id:
-                log_event(trace_id, "nlu_openai_fail", {
-                    "error_type": type(e).__name__,
-                    "error_message": str(e),
-                })
+                log_event(
+                    trace_id,
+                    "nlu_openai_fail",
+                    {
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    },
+                )
 
     out = _minimal_fallback_nlu(req)
     if log_event and trace_id:
-        log_event(trace_id, "nlu_exit", {
-            "provider": "fallback",
-            "domain": out.get("domain"),
-            "intent": out.get("intent"),
-            "intent_confidence": out.get("intent_confidence"),
-            "slots_keys": list((out.get("slots") or {}).keys()) if isinstance(out.get("slots"), dict) else [],
-        })
+        log_event(
+            trace_id,
+            "nlu_exit",
+            {
+                "provider": "fallback",
+                "domain": out.get("domain"),
+                "intent": out.get("intent"),
+                "intent_confidence": out.get("intent_confidence"),
+                "slots_keys": list((out.get("slots") or {}).keys()) if isinstance(out.get("slots"), dict) else [],
+            },
+        )
     return out
