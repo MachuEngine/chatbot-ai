@@ -12,7 +12,6 @@ try:
 except Exception:  # pragma: no cover
     log_event = None  # type: ignore
 
-# ✅ 변경: 개별 import 대신 domain 패키지의 통합 SCHEMAS 사용
 from domain import SCHEMAS
 
 
@@ -26,7 +25,7 @@ def _minimal_fallback_nlu(req) -> Dict[str, Any]:
     if domain == "education":
         return {
             "domain": "education",
-            "intent": "ask_knowledge",  # 변경된 기본 인텐트
+            "intent": "ask_knowledge",
             "intent_confidence": 0.1,
             "slots": {"topic": {"value": msg, "confidence": 0.1}},
         }
@@ -41,7 +40,6 @@ def _minimal_fallback_nlu(req) -> Dict[str, Any]:
 
 def _schema_for_domain(domain: str) -> Dict[str, Any]:
     d = (domain or "").strip().lower()
-    # ✅ 변경: 동적 로딩된 SCHEMAS에서 조회, 없으면 kiosk(기본값)
     return SCHEMAS.get(d, SCHEMAS.get("kiosk", {}))
 
 
@@ -66,15 +64,13 @@ def _intents_from_candidates(candidates: List[Dict[str, Any]]) -> List[str]:
 def build_domain_intent_schema(candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
     domains = _domains_from_candidates(candidates)
     intents = _intents_from_candidates(candidates)
-    
-    # ✅ 개선: reasoning 필드 추가 (CoT 적용)
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "reasoning": {
                 "type": "string",
-                "description": "Briefly explain why you chose this domain and intent based on user input and context."
+                "description": "Brief reasoning for the chosen domain and intent."
             },
             "domain": {"type": "string", "enum": domains},
             "intent": {"type": "string", "enum": intents},
@@ -212,10 +208,6 @@ def _safe_meta_dump(meta: Any) -> Any:
     return str(meta)
 
 
-# ----------------------------
-# kiosk 옵션 휴리스틱(핵심)
-# ----------------------------
-
 def _norm_kiosk_text(s: str) -> str:
     s = (s or "").strip().lower()
     s = re.sub(r"\s+", "", s)
@@ -224,21 +216,14 @@ def _norm_kiosk_text(s: str) -> str:
 
 
 def _heuristic_kiosk_option_groups(msg: str) -> Dict[str, str]:
-    """
-    LLM이 size/temperature를 놓치는 경우를 커버.
-    - 반환: {"temperature":"ice"|"hot", "size":"S"|"M"|"L"} 일부만 들어올 수 있음
-    """
     m = _norm_kiosk_text(msg)
     out: Dict[str, str] = {}
 
-    # temperature
     if any(k in m for k in ["아이스", "ice", "iced", "차가", "시원"]):
         out["temperature"] = "ice"
     elif any(k in m for k in ["뜨거", "핫", "hot", "따뜻"]):
         out["temperature"] = "hot"
 
-    # size
-    # (주의) "라지사이즈"처럼 붙는 케이스가 많아서 공백 제거된 m 기준
     if any(k in m for k in ["라지", "large", "l사이즈", "lsize", "제일큰", "가장큰", "큰"]):
         out["size"] = "L"
     elif any(k in m for k in ["미디움", "medium", "m사이즈", "msize", "중간", "보통"]):
@@ -246,8 +231,6 @@ def _heuristic_kiosk_option_groups(msg: str) -> Dict[str, str]:
     elif any(k in m for k in ["스몰", "small", "s사이즈", "ssize", "제일작", "가장작", "작은"]):
         out["size"] = "S"
 
-    # 단일 문자만 말한 경우도 커버 (예: "l로", "L", "엠")
-    # 공백 제거라서 "l로" 같은 것도 잡힘
     if "size" not in out:
         if re.search(r"(^|[^a-z0-9])l($|[^a-z0-9])", (msg or "").strip(), flags=re.IGNORECASE):
             out["size"] = "L"
@@ -263,18 +246,12 @@ def _merge_option_groups_list(
     existing: Any,
     add: Dict[str, str],
 ) -> List[Dict[str, Any]]:
-    """
-    existing: [{"group":"size","value":"L"}, ...] or None
-    add: {"size":"L", "temperature":"ice"}
-    => merged list (group unique)
-    """
     lst: List[Dict[str, Any]] = []
     if isinstance(existing, list):
         for it in existing:
             if isinstance(it, dict) and isinstance(it.get("group"), str):
                 lst.append({"group": it["group"], "value": it.get("value")})
 
-    # existing groups
     seen = {it["group"]: True for it in lst if isinstance(it, dict) and "group" in it}
 
     for g, v in add.items():
@@ -322,21 +299,12 @@ def _openai_nlu_two_stage(
         "candidates": candidates,
     }
 
-    mode = (getattr(meta, "mode", "") or "").lower().strip()
-    
-    # ✅ 개선: 1단계 프롬프트에 CoT 요청 추가
+    # --- Stage 1: Router ---
     system1 = (
         "You are an NLU router.\n"
-        "You should use a friendly and gentle tone of voice.\n"
-        "1. First, analyze the user's message and context. Write your thoughts briefly in the 'reasoning' field.\n"
-        "2. Then, choose the best (domain, intent) ONLY from the given candidates.\n"
-        "Be conservative. Do not invent new domains or intents."
+        "Analyze the user's message and context, then select the best (domain, intent) from the candidates.\n"
+        "Provide brief reasoning."
     )
-    if mode in ("edu", "education"):
-        system1 += (
-            "\nIMPORTANT: The client is in EDU mode. "
-            "You must only respond for the purpose of learning Korean."
-        )
     schema1 = build_domain_intent_schema(candidates)
 
     out1 = _openai_call_json_schema(
@@ -352,23 +320,12 @@ def _openai_nlu_two_stage(
     domain = (out1.get("domain") or "").strip().lower()
     intent = (out1.get("intent") or "").strip()
     intent_conf = float(out1.get("intent_confidence") or 0.0)
-    reasoning = out1.get("reasoning", "") # ✅ 추출된 추론 내용
+    reasoning = out1.get("reasoning", "")
 
     if log_event and trace_id:
-        log_event(
-            trace_id,
-            "nlu_openai_stage1_ok",
-            {
-                "model": model,
-                "domain": domain,
-                "intent": intent,
-                "intent_confidence": intent_conf,
-                "reasoning": reasoning,
-            },
-        )
+        log_event(trace_id, "nlu_openai_stage1_ok", {"domain": domain, "intent": intent, "reasoning": reasoning})
 
     domain_schema = _schema_for_domain(domain)
-
     if intent not in (domain_schema.get("intents") or {}):
         return {
             "domain": domain or "kiosk",
@@ -377,71 +334,43 @@ def _openai_nlu_two_stage(
             "slots": {},
         }
 
-    schema2 = build_slots_schema(domain, intent, domain_schema)
-
+    # --- Stage 2: Slot Extraction ---
     slot_guidance: Dict[str, Any] = {}
 
+    # ✅ 도메인별 핵심 규칙 (간결하게 정리)
     if domain == "kiosk":
         slot_guidance = {
             "RULES": [
-                "Do NOT hallucinate menu availability or prices.",
-                "Extract slots ONLY from the current user_message. Do NOT copy slots from state_summary.",
-                "If a value is not explicitly present in the current user_message, leave it null with low confidence.",
-                "",
-                "CRITICAL: item_name MUST be the menu name ONLY.",
-                "- NEVER include temperature words in item_name (e.g., 아이스/뜨거운/hot/ice/iced).",
-                "- NEVER include size words in item_name (e.g., 라지/스몰/미디움/큰/작은/S/M/L/사이즈).",
-                "- Example: '아메리카노 아이스로 라지' => item_name='아메리카노', option_groups=[{temperature:'ice'},{size:'L'}]",
-                "",
-                "If state_summary.last_bot_action is 'ask_option_group' and state_summary.pending_option_group exists:",
-                "- Treat the user's message as an answer to that pending option question (highest priority).",
-                "- Extract the pending option group if it is explicitly mentioned OR can be mapped from the message.",
-                "- ALSO extract other option groups (e.g., temperature/size) IF they are explicitly mentioned in the same user_message.",
-                "- Do NOT infer any option values from previous turns if the current message doesn't mention them.",
-                "- Do NOT fill item_name/quantity unless the current message explicitly contains a NEW order (menu name or clear new order request).",
-                "",
-                "Temperature rule:",
-                "- If the user mentions temperature preference (아이스/차가운/뜨거운/hot/ice):",
-                "  - If intent is add_item or ask_price: put it into option_groups as {group:'temperature', value:'ice'|'hot'}.",
-                "  - If intent is ask_recommendation: put it into temperature_hint ('ice'|'hot'), NOT into option_groups.",
-                "- For temperature values, use EXACT strings: 'ice' or 'hot'.",
-                "",
-                "Size rule (when relevant):",
-                "- Map '제일 작은/가장 작은/작은/스몰/s/small' => 'S'",
-                "- Map '중간/보통/m/medium' => 'M'",
-                "- Map '제일 큰/가장 큰/큰/라지/l/large' => 'L'",
-                "- Use EXACT uppercase: 'S','M','L'.",
+                "1. Item Name: Extract ONLY the menu name. Exclude temperature (ice/hot) and size (S/M/L).",
+                "2. Options: Extract temperature and size into 'option_groups'.",
+                "3. Context: If answering a pending option question, prioritize the user's answer for that option.",
+                "4. No History: Extract slots ONLY from the current user_message."
             ]
         }
     elif domain == "education":
         slot_guidance = {
             "RULES": [
-                "Use edu_payload fields if present.",
-                "If edu_payload.content is provided and slot name 'content' exists, use it for that slot.",
-                "If edu_payload.student_answer is provided and slot name 'student_answer' exists, use it for that slot.",
-                "If edu_payload.topic is provided and slot name 'topic' exists, use it for that slot.",
-                "Do NOT hallucinate missing text. If the user requests summarization/rewriting but content is missing, leave content null and keep confidence low.",
-                "Do NOT invent facts.",
-                "If the user asks to evaluate/grade feedback and the answer text is included in user_message, extract that part into slot 'student_answer'.",
-                "If the user asks to summarize/rewrite/expand and the source text is included in user_message, extract that part into slot 'content'.",
-                "If the user explicitly mentions a topic word (e.g., '연음', '받침', '동화'), extract it into slot 'topic'.",
-                "If unsure, keep value_* as null with low confidence.",
+                "1. TOPIC: Extract 'topic' ONLY when a specific concept is named (e.g. 'Yeoneum', 'Batchim').",
+                "2. NO GENERIC TOPICS: Do NOT extract generic words (e.g. 'example', 'meaning', 'question', 'word') as 'topic'. Use 'request_type' instead.",
+                "3. CONTEXT: If the user asks for details (e.g. 'Give me an example') without naming a topic, leave 'topic' NULL (system will use history).",
+                "4. PAYLOAD: Use edu_payload fields if present."
             ]
         }
 
-    # ✅ 개선: 2단계 프롬프트에 1단계의 추론(reasoning)을 맥락으로 제공
+    # ✅ 시스템 프롬프트 (핵심 지침만 유지)
     system2 = (
         "You are an NLU slot extractor.\n"
-        "Return slots as an array of objects.\n"
-        "IMPORTANT: For each slot item, fill EXACTLY ONE of these fields and set all others to null:\n"
-        "- value_str, value_int, value_num, value_bool, value_option_groups\n"
-        "Use value_option_groups ONLY when the slot name is 'option_groups'.\n"
-        "If unknown, set all value_* fields to null and confidence low.\n"
-        "Never invent facts.\n"
-        "Follow slot_guidance strictly.\n"
-        f"Context Reasoning from Router: {reasoning}\n"
+        "Extract slots from the current 'user_message' based on the schema.\n"
+        "\n"
+        "GUIDELINES:\n"
+        "1. Focus ONLY on the current message. Do NOT copy slots from history.\n"
+        "2. For each slot, fill exactly one value field and leave others null.\n"
+        "3. Follow the 'slot_guidance' rules strictly, especially for 'topic' constraints.\n"
+        f"Context Reasoning: {reasoning}\n"
     )
 
+    schema2 = build_slots_schema(domain, intent, domain_schema)
+    
     user2 = {
         **base_user,
         "chosen": {"domain": domain, "intent": intent},
@@ -475,64 +404,36 @@ def _openai_nlu_two_stage(
 
     if isinstance(raw_slots, list):
         for item in raw_slots:
-            if not isinstance(item, dict):
-                continue
-
+            if not isinstance(item, dict): continue
             name = item.get("name")
-            if not isinstance(name, str) or not name:
-                continue
+            if not isinstance(name, str) or not name: continue
 
-            try:
-                conf_f = float(item.get("confidence", 0.0))
-            except Exception:
-                conf_f = 0.0
-
+            try: conf_f = float(item.get("confidence", 0.0))
+            except Exception: conf_f = 0.0
+            
             val = _pick_value(item)
-
             prev = slots.get(name)
             prev_conf = float(prev.get("confidence", 0.0)) if isinstance(prev, dict) else -1.0
+            
             if conf_f >= prev_conf:
                 slots[name] = {"value": val, "confidence": max(min(conf_f, 1.0), 0.0)}
-    else:
-        slots = {}
 
-    # ✅ (핵심) kiosk/add_item/ask_price에서 option_groups 후처리 보강
+    # Kiosk Heuristic (Option Groups)
     if domain == "kiosk" and intent in ("add_item", "ask_price"):
         og = slots.get("option_groups")
         og_val = og.get("value") if isinstance(og, dict) else None
-
         heur = _heuristic_kiosk_option_groups(msg)
+        
         if heur:
             merged_list = _merge_option_groups_list(og_val, heur)
             if merged_list:
-                # confidence는 LLM보다 낮게(후처리니까)
                 prev_conf = float(og.get("confidence", 0.0)) if isinstance(og, dict) else 0.0
-                slots["option_groups"] = {
-                    "value": merged_list,
-                    "confidence": max(prev_conf, 0.55),
-                }
-
+                slots["option_groups"] = {"value": merged_list, "confidence": max(prev_conf, 0.55)}
                 if log_event and trace_id:
-                    log_event(
-                        trace_id,
-                        "nlu_kiosk_option_groups_heuristic_merge",
-                        {
-                            "intent": intent,
-                            "heuristic": heur,
-                            "merged": merged_list,
-                        },
-                    )
+                    log_event(trace_id, "nlu_kiosk_heuristic_ok", {"merged": merged_list})
 
     if log_event and trace_id:
-        log_event(
-            trace_id,
-            "nlu_openai_stage2_ok",
-            {
-                "domain": domain,
-                "intent": intent,
-                "slots_keys": list(slots.keys()),
-            },
-        )
+        log_event(trace_id, "nlu_openai_stage2_ok", {"domain": domain, "intent": intent, "slots_keys": list(slots.keys())})
 
     return {
         "domain": domain,
@@ -548,65 +449,15 @@ def nlu_with_llm(
     candidates: List[Dict[str, Any]],
     trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    msg = (getattr(req, "user_message", "") or "").strip()
-    meta = getattr(req, "meta", None)
-    mode = (getattr(meta, "mode", "") or "").lower().strip()
-
-    if log_event and trace_id:
-        log_event(
-            trace_id,
-            "nlu_enter",
-            {
-                "mode": mode,
-                "msg_len": len(msg),
-                "candidates_count": len(candidates) if isinstance(candidates, list) else None,
-                "state_turn_index": state.get("turn_index") if isinstance(state, dict) else None,
-            },
-        )
-
+    # (LLM Enabled 체크 및 에러 핸들링은 기존 유지)
     enable_llm = os.getenv("OPENAI_ENABLE_LLM", "").strip() == "1"
     has_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
 
     if enable_llm and has_key:
         try:
-            out = _openai_nlu_two_stage(req, state, candidates, trace_id)
-            if log_event and trace_id:
-                log_event(
-                    trace_id,
-                    "nlu_exit",
-                    {
-                        "provider": "openai",
-                        "domain": out.get("domain"),
-                        "intent": out.get("intent"),
-                        "intent_confidence": out.get("intent_confidence"),
-                        "slots_keys": list((out.get("slots") or {}).keys())
-                        if isinstance(out.get("slots"), dict)
-                        else [],
-                    },
-                )
-            return out
+            return _openai_nlu_two_stage(req, state, candidates, trace_id)
         except Exception as e:
             if log_event and trace_id:
-                log_event(
-                    trace_id,
-                    "nlu_openai_fail",
-                    {
-                        "error_type": type(e).__name__,
-                        "error_message": str(e),
-                    },
-                )
+                log_event(trace_id, "nlu_openai_fail", {"error": str(e)})
 
-    out = _minimal_fallback_nlu(req)
-    if log_event and trace_id:
-        log_event(
-            trace_id,
-            "nlu_exit",
-            {
-                "provider": "fallback",
-                "domain": out.get("domain"),
-                "intent": out.get("intent"),
-                "intent_confidence": out.get("intent_confidence"),
-                "slots_keys": list((out.get("slots") or {}).keys()) if isinstance(out.get("slots"), dict) else [],
-            },
-        )
-    return out
+    return _minimal_fallback_nlu(req)
