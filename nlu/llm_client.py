@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import json
-from typing import Dict, Any, List, Optional, Set
+import re
+from typing import Dict, Any, List, Optional, Set, Tuple
 
 import requests
 
@@ -206,6 +207,79 @@ def _safe_meta_dump(meta: Any) -> Any:
     return str(meta)
 
 
+# ----------------------------
+# kiosk 옵션 휴리스틱(핵심)
+# ----------------------------
+
+def _norm_kiosk_text(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"\s+", "", s)
+    s = re.sub(r"[^a-z0-9가-힣]", "", s)
+    return s
+
+
+def _heuristic_kiosk_option_groups(msg: str) -> Dict[str, str]:
+    """
+    LLM이 size/temperature를 놓치는 경우를 커버.
+    - 반환: {"temperature":"ice"|"hot", "size":"S"|"M"|"L"} 일부만 들어올 수 있음
+    """
+    m = _norm_kiosk_text(msg)
+    out: Dict[str, str] = {}
+
+    # temperature
+    if any(k in m for k in ["아이스", "ice", "iced", "차가", "시원"]):
+        out["temperature"] = "ice"
+    elif any(k in m for k in ["뜨거", "핫", "hot", "따뜻"]):
+        out["temperature"] = "hot"
+
+    # size
+    # (주의) "라지사이즈"처럼 붙는 케이스가 많아서 공백 제거된 m 기준
+    if any(k in m for k in ["라지", "large", "l사이즈", "lsize", "제일큰", "가장큰", "큰"]):
+        out["size"] = "L"
+    elif any(k in m for k in ["미디움", "medium", "m사이즈", "msize", "중간", "보통"]):
+        out["size"] = "M"
+    elif any(k in m for k in ["스몰", "small", "s사이즈", "ssize", "제일작", "가장작", "작은"]):
+        out["size"] = "S"
+
+    # 단일 문자만 말한 경우도 커버 (예: "l로", "L", "엠")
+    # 공백 제거라서 "l로" 같은 것도 잡힘
+    if "size" not in out:
+        if re.search(r"(^|[^a-z0-9])l($|[^a-z0-9])", (msg or "").strip(), flags=re.IGNORECASE):
+            out["size"] = "L"
+        elif re.search(r"(^|[^a-z0-9])m($|[^a-z0-9])", (msg or "").strip(), flags=re.IGNORECASE):
+            out["size"] = "M"
+        elif re.search(r"(^|[^a-z0-9])s($|[^a-z0-9])", (msg or "").strip(), flags=re.IGNORECASE):
+            out["size"] = "S"
+
+    return out
+
+
+def _merge_option_groups_list(
+    existing: Any,
+    add: Dict[str, str],
+) -> List[Dict[str, Any]]:
+    """
+    existing: [{"group":"size","value":"L"}, ...] or None
+    add: {"size":"L", "temperature":"ice"}
+    => merged list (group unique)
+    """
+    lst: List[Dict[str, Any]] = []
+    if isinstance(existing, list):
+        for it in existing:
+            if isinstance(it, dict) and isinstance(it.get("group"), str):
+                lst.append({"group": it["group"], "value": it.get("value")})
+
+    # existing groups
+    seen = {it["group"]: True for it in lst if isinstance(it, dict) and "group" in it}
+
+    for g, v in add.items():
+        if g not in seen:
+            lst.append({"group": g, "value": v})
+            seen[g] = True
+
+    return lst
+
+
 def _openai_nlu_two_stage(
     req,
     state: Dict[str, Any],
@@ -221,7 +295,6 @@ def _openai_nlu_two_stage(
     msg = (getattr(req, "user_message", "") or "").strip()
     meta = getattr(req, "meta", None)
 
-    # ✅ NEW: meta 밖 edu payload (api/chat.py에서 하위호환 흡수 후 req에 반영됨)
     edu_payload = {
         "content": getattr(req, "content", None),
         "student_answer": getattr(req, "student_answer", None),
@@ -231,12 +304,14 @@ def _openai_nlu_two_stage(
     base_user = {
         "user_message": msg,
         "meta": _safe_meta_dump(meta),
-        "edu_payload": edu_payload,  # ✅ 추가
+        "edu_payload": edu_payload,
         "state_summary": {
             "turn_index": state.get("turn_index"),
             "current_domain": state.get("current_domain"),
             "active_intent": state.get("active_intent"),
             "last_bot_action": state.get("last_bot_action"),
+            "pending_option_group": state.get("pending_option_group"),
+            "pending_option_group_choices": state.get("pending_option_group_choices"),
             "slots": state.get("slots"),
         },
         "candidates": candidates,
@@ -294,18 +369,38 @@ def _openai_nlu_two_stage(
 
     schema2 = build_slots_schema(domain, intent, domain_schema)
 
-    # ✅ intent별 슬롯 가이드 (키오스크 rule 유지 + education도 보강)
     slot_guidance: Dict[str, Any] = {}
 
     if domain == "kiosk":
         slot_guidance = {
             "RULES": [
                 "Do NOT hallucinate menu availability or prices.",
-                "If the user mentions temperature preference (아이스/뜨거운/hot/ice):",
-                "- If intent is add_item or ask_price: put it into option_groups as {group:'temperature', value:'iced'|'hot'}.",
-                "- If intent is ask_recommendation: put it into temperature_hint ('iced'|'hot'), NOT into option_groups.",
-                "For 'iced/hot' values, use EXACT strings: 'iced' or 'hot'.",
-                "Do not fill both temperature_hint and option_groups.temperature for the same message unless explicitly needed by schema (prefer the rule above).",
+                "Extract slots ONLY from the current user_message. Do NOT copy slots from state_summary.",
+                "If a value is not explicitly present in the current user_message, leave it null with low confidence.",
+                "",
+                "CRITICAL: item_name MUST be the menu name ONLY.",
+                "- NEVER include temperature words in item_name (e.g., 아이스/뜨거운/hot/ice/iced).",
+                "- NEVER include size words in item_name (e.g., 라지/스몰/미디움/큰/작은/S/M/L/사이즈).",
+                "- Example: '아메리카노 아이스로 라지' => item_name='아메리카노', option_groups=[{temperature:'ice'},{size:'L'}]",
+                "",
+                "If state_summary.last_bot_action is 'ask_option_group' and state_summary.pending_option_group exists:",
+                "- Treat the user's message as an answer to that pending option question (highest priority).",
+                "- Extract the pending option group if it is explicitly mentioned OR can be mapped from the message.",
+                "- ALSO extract other option groups (e.g., temperature/size) IF they are explicitly mentioned in the same user_message.",
+                "- Do NOT infer any option values from previous turns if the current message doesn't mention them.",
+                "- Do NOT fill item_name/quantity unless the current message explicitly contains a NEW order (menu name or clear new order request).",
+                "",
+                "Temperature rule:",
+                "- If the user mentions temperature preference (아이스/차가운/뜨거운/hot/ice):",
+                "  - If intent is add_item or ask_price: put it into option_groups as {group:'temperature', value:'ice'|'hot'}.",
+                "  - If intent is ask_recommendation: put it into temperature_hint ('ice'|'hot'), NOT into option_groups.",
+                "- For temperature values, use EXACT strings: 'ice' or 'hot'.",
+                "",
+                "Size rule (when relevant):",
+                "- Map '제일 작은/가장 작은/작은/스몰/s/small' => 'S'",
+                "- Map '중간/보통/m/medium' => 'M'",
+                "- Map '제일 큰/가장 큰/큰/라지/l/large' => 'L'",
+                "- Use EXACT uppercase: 'S','M','L'.",
             ]
         }
     elif domain == "education":
@@ -389,6 +484,33 @@ def _openai_nlu_two_stage(
     else:
         slots = {}
 
+    # ✅ (핵심) kiosk/add_item/ask_price에서 option_groups 후처리 보강
+    if domain == "kiosk" and intent in ("add_item", "ask_price"):
+        og = slots.get("option_groups")
+        og_val = og.get("value") if isinstance(og, dict) else None
+
+        heur = _heuristic_kiosk_option_groups(msg)
+        if heur:
+            merged_list = _merge_option_groups_list(og_val, heur)
+            if merged_list:
+                # confidence는 LLM보다 낮게(후처리니까)
+                prev_conf = float(og.get("confidence", 0.0)) if isinstance(og, dict) else 0.0
+                slots["option_groups"] = {
+                    "value": merged_list,
+                    "confidence": max(prev_conf, 0.55),
+                }
+
+                if log_event and trace_id:
+                    log_event(
+                        trace_id,
+                        "nlu_kiosk_option_groups_heuristic_merge",
+                        {
+                            "intent": intent,
+                            "heuristic": heur,
+                            "merged": merged_list,
+                        },
+                    )
+
     if log_event and trace_id:
         log_event(
             trace_id,
@@ -445,7 +567,9 @@ def nlu_with_llm(
                         "domain": out.get("domain"),
                         "intent": out.get("intent"),
                         "intent_confidence": out.get("intent_confidence"),
-                        "slots_keys": list((out.get("slots") or {}).keys()) if isinstance(out.get("slots"), dict) else [],
+                        "slots_keys": list((out.get("slots") or {}).keys())
+                        if isinstance(out.get("slots"), dict)
+                        else [],
                     },
                 )
             return out

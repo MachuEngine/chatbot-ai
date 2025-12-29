@@ -1,3 +1,4 @@
+# nlu/normalizer.py
 from __future__ import annotations
 
 import re
@@ -65,6 +66,40 @@ def _last_bot_action(state: Optional[Dict[str, Any]]) -> str:
     return ""
 
 
+def _looks_like_new_order(msg: str) -> bool:
+    """
+    pending 옵션 질문 중에 사용자가 새 주문을 말한 것으로 보이면
+    pending followup을 해제해서 "새 주문"으로 흘려보내기 위한 휴리스틱.
+
+    - 너무 공격적으로 잡으면 옵션 답변을 새 주문으로 오해할 수 있으니
+      트리거는 최소한으로 둔다.
+    """
+    m = (msg or "").strip()
+    if not m:
+        return False
+
+    triggers = [
+        "주세요",
+        "주문",
+        "시킬게",
+        "시켜",
+        "할게요",
+        "할게",
+        "다시",
+        "추가",
+        "하나",
+        "두",
+        "세",
+        "한잔",
+        "한 잔",
+        "두잔",
+        "두 잔",
+        "세잔",
+        "세 잔",
+    ]
+    return any(t in m for t in triggers)
+
+
 # ----------------------------
 # education 정책 키들
 # ----------------------------
@@ -81,8 +116,6 @@ EDU_PREFERENCE_KEYS = {
     "target_improvements",
 }
 
-# ✅ 중요: education에서 "일회성/컨텍스트성" 슬롯들
-# followup이 아니면 끊어서 오염 방지
 EDU_CONTEXT_KEYS = {
     "topic",
     "content",
@@ -166,32 +199,171 @@ def apply_session_rules(
     slots_in = _safe_dict(n.get("slots"))
     prev_slots = _safe_dict(st.get("slots"))
 
-    # education 이외: 기존 방식 유지
+    # ----------------------------
+    # kiosk 및 기타(education 제외)
+    # ----------------------------
     if domain != "education":
-        merged_slots = _merge_dict(prev_slots, slots_in)
+        pending_group = _safe_str(st.get("pending_option_group")).strip()
+        pending_choices = st.get("pending_option_group_choices")
+        last_action = _last_bot_action(st)
+
+        is_pending_followup = bool(pending_group) and (last_action == "ask_option_group")
+
+        # ✅ pending 옵션 응답은 직전 의도를 유지하도록 intent 고정
+        if is_pending_followup:
+            active = _safe_str(st.get("active_intent")).strip()
+            if active:
+                intent = active
+
+            msg = (user_message or "").strip()
+
+            def _norm_temp(s: str) -> Optional[str]:
+                s2 = (s or "").strip().lower()
+                if not s2:
+                    return None
+                s2n = re.sub(r"[^a-z0-9가-힣]", "", s2)
+                if any(k in s2n for k in ["아이스", "ice", "iced", "차가", "시원", "콜드", "cold"]):
+                    return "ice"
+                if any(k in s2n for k in ["뜨거", "따뜻", "핫", "hot"]):
+                    return "hot"
+                return None
+
+            def _norm_size(s: str) -> Optional[str]:
+                s2 = (s or "").strip().lower()
+                if not s2:
+                    return None
+                s2n = re.sub(r"[^a-z0-9가-힣]", "", s2)
+
+                m = re.match(r"^(s|m|l)", s2n)
+                if m:
+                    return m.group(1).upper()
+
+                if "small" in s2n:
+                    return "S"
+                if "medium" in s2n:
+                    return "M"
+                if "large" in s2n:
+                    return "L"
+
+                if any(k in s2n for k in ["제일작", "가장작", "작은", "스몰"]):
+                    return "S"
+                if any(k in s2n for k in ["중간", "보통", "미디움"]):
+                    return "M"
+                if any(k in s2n for k in ["제일큰", "가장큰", "큰", "라지"]):
+                    return "L"
+
+                if s2n == "tall":
+                    return "Tall"
+                if s2n == "grande":
+                    return "Grande"
+                if s2n == "venti":
+                    return "Venti"
+
+                return None
+
+            # ✅ pending 상황에서도 "명시된 다른 옵션"을 같이 반영하기 위해 둘 다 검사
+            temp_candidate = _norm_temp(msg)
+            size_candidate = _norm_size(msg)
+
+            coerced: Optional[str] = None
+            extra_updates: Dict[str, Any] = {}
+
+            if pending_group == "temperature":
+                coerced = temp_candidate
+                if size_candidate is not None:
+                    extra_updates["size"] = size_candidate
+            elif pending_group == "size":
+                coerced = size_candidate
+                if temp_candidate is not None:
+                    extra_updates["temperature"] = temp_candidate
+
+            # choices가 있으면 그 안에서 최대한 맞추기(대소문자/공백 무시) - pending_group 값에만 적용
+            if coerced is None and isinstance(pending_choices, list):
+                msg_l = re.sub(r"\s+", "", msg).lower()
+                for c in pending_choices:
+                    if not isinstance(c, str):
+                        continue
+                    if re.sub(r"\s+", "", c).lower() == msg_l:
+                        coerced = c
+                        break
+
+            # ✅ (중요) coercion 실패이면서, extra_updates도 없을 때만
+            # LLM이 option_groups: []/{} 같은 "빈 값"을 보내더라도 prev option_groups를 덮어쓰지 않게 drop
+            if coerced is None and not extra_updates:
+                if "option_groups" in slots_in:
+                    slots_in.pop("option_groups", None)
+                    log_event(
+                        trace_id,
+                        "kiosk_pending_drop_empty_option_groups",
+                        {
+                            "pending_group": pending_group,
+                            "user_message": msg[:120],
+                            "reason": "coercion_failed_keep_prev",
+                        },
+                    )
+
+            # ✅ 옵션 값으로 coercion 실패 + extra도 없음 + 새 주문처럼 보이면 pending followup 해제
+            if coerced is None and (not extra_updates) and _looks_like_new_order(msg):
+                is_pending_followup = False
+
+            # ✅ 실제 반영: pending 값(coerced) 또는 extra_updates 중 하나라도 있으면 option_groups merge
+            if coerced is not None or extra_updates:
+                # NLU가 옵션 답변을 item_name으로 오염시키는 케이스 방지
+                slots_in.pop("item_name", None)
+
+                # option_groups를 dict로 정규화
+                og_any = slots_in.get("option_groups")
+                og_val = _slot_value(og_any)
+                if isinstance(og_val, list):
+                    og_dict: Dict[str, Any] = {}
+                    for it in og_val:
+                        if isinstance(it, dict) and isinstance(it.get("group"), str):
+                            og_dict[it["group"].strip()] = it.get("value")
+                elif isinstance(og_val, dict):
+                    v = og_val.get("value")
+                    og_dict = dict(v) if isinstance(v, dict) else dict(og_val)
+                else:
+                    og_dict = {}
+
+                # pending_group 값
+                if coerced is not None and pending_group:
+                    og_dict[pending_group] = coerced
+
+                # 추가 업데이트(명시된 다른 옵션)
+                for k, v in extra_updates.items():
+                    og_dict[k] = v
+
+                slots_in["option_groups"] = {"value": og_dict, "confidence": 0.9}
+
+        # ✅ 슬롯 오염 방지:
+        # kiosk(education 제외)는 "pending followup"일 때만 prev_slots carry
+        if is_pending_followup:
+            merged_slots = _merge_dict(prev_slots, slots_in)
+        else:
+            merged_slots = dict(slots_in)
+
         out = dict(n)
         out["domain"] = domain
         out["intent"] = intent
         out["slots"] = merged_slots
         return out
 
-    # education: followup 판정
+    # ----------------------------
+    # education: 기존 로직 그대로
+    # ----------------------------
     follow, meta = is_followup(user_message=user_message, state=st, trace_id=trace_id)
 
     merged_slots: Dict[str, Any] = {}
 
-    # 1) preference merge
     prev_pref = {k: v for k, v in prev_slots.items() if k in EDU_PREFERENCE_KEYS}
     in_pref = {k: v for k, v in slots_in.items() if k in EDU_PREFERENCE_KEYS}
     merged_slots = _merge_dict(prev_pref, in_pref)
 
-    # 2) other merge (context 제외)
     special_keys = EDU_PREFERENCE_KEYS.union(EDU_CONTEXT_KEYS)
     prev_other = {k: v for k, v in prev_slots.items() if k not in special_keys}
     in_other = {k: v for k, v in slots_in.items() if k not in special_keys}
     merged_slots = _merge_dict(_merge_dict(merged_slots, prev_other), in_other)
 
-    # 3) context(topic 등) 처리
     topic_slot_new = slots_in.get("topic")
     topic_new_val = _slot_value(topic_slot_new)
     topic_new_conf = _slot_conf(topic_slot_new)
@@ -202,8 +374,6 @@ def apply_session_rules(
     policy_action = ""
 
     if not follow:
-        # ✅ followup이 아니면 일회성/컨텍스트 슬롯은 기본적으로 끊는다.
-        # topic만 "메시지 근거"가 있으면 유지 가능.
         keep_new_topic = False
         if "topic" in slots_in and _has_nonempty(topic_new_val):
             keep_new_topic = _should_keep_new_topic_when_not_followup(
@@ -211,7 +381,6 @@ def apply_session_rules(
                 topic_new_val=topic_new_val,
             )
 
-        # 컨텍스트 슬롯 드랍
         for k in EDU_CONTEXT_KEYS:
             merged_slots.pop(k, None)
 
@@ -222,8 +391,6 @@ def apply_session_rules(
             policy_action = "cut_context_drop_topic"
 
     else:
-        # followup이면 topic만 carry 정책 적용(나머지 content/student_answer/question은
-        # followup이면 슬롯으로 다시 들어오는 게 자연스러우므로 slots_in에 맡김)
         if (not _has_nonempty(topic_new_val)) or (topic_new_conf < 0.35):
             if _has_nonempty(topic_prev_val):
                 merged_slots["topic"] = topic_slot_prev
