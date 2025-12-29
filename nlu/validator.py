@@ -4,11 +4,13 @@ import re
 from typing import Any, Dict, Optional, List, Tuple
 
 from utils.logging import log_event
+# ✅ [변경] 구체적인 SQLite 클래스 대신 인터페이스와 팩토리 함수를 사용합니다.
+from domain.kiosk.catalog_repo import CatalogRepo
 from domain.kiosk.policy import (
     get_required_option_groups_for_add_item,
     find_missing_required_option_group,
+    default_catalog_repo,
 )
-from domain.kiosk.catalog_sqlite import SQLiteCatalogRepo
 
 TEMPLATES = {
     "result.kiosk.add_item": "",
@@ -31,17 +33,7 @@ def _merge_state(state: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _normalize_option_groups(option_groups: Any) -> Dict[str, Any]:
-    """Normalize option_groups to a plain dict.
-
-    Supported inputs:
-      - None
-      - {"value": {..}}
-      - {..}
-      - [{"group": "temperature", "value": "ice"}, ...]
-
-    NOTE: policy(find_missing_required_option_group)는 dict 매핑만 보므로,
-          list 형태로 들어오는 케이스를 여기서 흡수한다.
-    """
+    """Normalize option_groups to a plain dict."""
     if option_groups is None:
         return {}
 
@@ -66,7 +58,6 @@ def _normalize_option_groups(option_groups: Any) -> Dict[str, Any]:
 
 
 def _normalize_temperature_value(v: Any) -> Any:
-    # 메뉴 DB choices가 ["hot","ice"] 같이 내려오는 흐름과 맞추기 위해 ice/hot로 정규화
     if not isinstance(v, str):
         return v
     s = v.strip().lower()
@@ -110,9 +101,6 @@ def _compact_spaces(s: str) -> str:
 def _recover_item_name_candidates(item_name: Any, option_groups: Dict[str, Any]) -> List[str]:
     """
     item_name이 '아메리카노 아이스'처럼 오염된 경우를 복구하기 위한 후보 리스트 반환.
-    - 1) 원본
-    - 2) 노이즈 패턴 제거
-    - 3) option_groups 기반 추가 제거
     """
     if not isinstance(item_name, str):
         return []
@@ -171,8 +159,6 @@ def _edu_make_llm_task(
         "input_type": meta.get("input_type"),
     }
 
-    # ✅ OpenAI strict json_schema: properties를 늘리면 required에 "전부" 넣으라고 400이 날 수 있음.
-    #    따라서 ui_hints는 domain/intent만 허용(최소 스키마)로 유지.
     return {
         "type": "edu_answer_generation",
         "input": {
@@ -209,6 +195,8 @@ def validate_and_build_action(
     meta: Dict[str, Any],
     state: Dict[str, Any],
     trace_id: Optional[str] = None,
+    # ✅ [변경] Repo를 주입받도록 인자를 추가했습니다.
+    catalog: Optional[CatalogRepo] = None,
 ):
     message_key_ok = f"result.{domain}.{intent}"
     message_key_fail = "result.fail.generic"
@@ -240,7 +228,9 @@ def validate_and_build_action(
             new_state = _merge_state(state, {"debug_last_reason": "missing_meta_or_item_name"})
             return action, new_state
 
-        catalog = SQLiteCatalogRepo(db_path=meta.get("db_path", "data/menu.db"))
+        # ✅ [변경] 주입된 catalog가 없으면 기본값(SQLite)을 생성해서 사용합니다.
+        if catalog is None:
+            catalog = default_catalog_repo()
 
         # 1) 원본 이름으로 lookup
         item = catalog.get_item_by_name(
@@ -334,7 +324,7 @@ def validate_and_build_action(
                 }
             }
 
-            # ✅ follow-up에 필요한 최소 슬롯만 저장 + option_groups는 wrapper로 통일(빈 {} 사고 방지)
+            # ✅ follow-up에 필요한 최소 슬롯만 저장
             slots_min = {
                 "item_name": slots.get("item_name"),
                 "quantity": slots.get("quantity"),

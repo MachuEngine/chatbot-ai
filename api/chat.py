@@ -12,9 +12,11 @@ from nlu.llm_client import nlu_with_llm
 from nlu.validator import validate_and_build_action
 from nlu.normalizer import apply_session_rules
 from nlu.edu_answer_llm import generate_edu_answer_with_llm
-from nlu.edu_guard import is_edu_relevant  # ✅ NEW
+from nlu.edu_guard import is_edu_relevant
 from utils.logging import log_event
 from utils.trace_utils import state_summary, nlu_diff_hint
+# ✅ [변경] Repository 생성을 위한 팩토리 함수를 import합니다.
+from domain.kiosk.policy import default_catalog_repo
 
 router = APIRouter()
 sessions = SessionManager()
@@ -29,7 +31,6 @@ SENSITIVE_META_KEYS = {
     "cookie",
 }
 
-# ✅ meta에 있으면 안 되는 edu payload 키 (하위호환 흡수 대상)
 EDU_PAYLOAD_KEYS = {"content", "student_answer", "topic"}
 
 
@@ -84,7 +85,6 @@ def _exc_info(e: Exception) -> Dict[str, Any]:
 def _safe_meta_for_validator(meta: Any) -> Dict[str, Any]:
     """
     validator는 Dict meta를 기대하므로 pydantic -> dict 변환
-    + edu payload 키는 meta에서 제거(정화)
     """
     if meta is None:
         return {}
@@ -103,11 +103,6 @@ def _safe_meta_for_validator(meta: Any) -> Dict[str, Any]:
 
 
 def _merge_edu_payload_from_req_and_meta(req: ChatRequest) -> Dict[str, Optional[str]]:
-    """
-    ✅ 하위호환:
-    - 새로운 방식: req.content / req.student_answer / req.topic
-    - 레거시: meta.content / meta.student_answer / meta.topic
-    """
     meta_dump: Dict[str, Any] = {}
     try:
         meta_dump = req.meta.model_dump()
@@ -118,7 +113,6 @@ def _merge_edu_payload_from_req_and_meta(req: ChatRequest) -> Dict[str, Optional
     student_answer = req.student_answer or meta_dump.get("student_answer")
     topic = req.topic or meta_dump.get("topic")
 
-    # ✅ req에 반영(모델에 필드가 있으므로 안전)
     req.content = content
     req.student_answer = student_answer
     req.topic = topic
@@ -138,7 +132,6 @@ def chat(req: ChatRequest):
     user_message = (req.user_message or "")
     client_session_id = getattr(req.meta, "client_session_id", None)
 
-    # ✅ edu payload 흡수 + req에 반영 (하위호환 포함)
     edu_payload = _merge_edu_payload_from_req_and_meta(req)
 
     log_event(
@@ -193,6 +186,11 @@ def chat(req: ChatRequest):
         stage = "validation_result"
         meta_dict = _safe_meta_for_validator(req.meta)
 
+        # ✅ [변경] Repo 객체를 생성합니다.
+        # (실무에서는 DB Connection Pool이나 DI Container를 통해 주입받는 것이 좋습니다)
+        catalog_repo = default_catalog_repo()
+
+        # ✅ [변경] 생성된 Repo를 Validator에 전달합니다.
         action, new_state = validate_and_build_action(
             domain=(nlu2.get("domain") or "").strip(),
             intent=(nlu2.get("intent") or "").strip(),
@@ -200,6 +198,7 @@ def chat(req: ChatRequest):
             meta=meta_dict,
             state=state if isinstance(state, dict) else {},
             trace_id=trace_id,
+            catalog=catalog_repo,  # DI Injection
         )
 
         log_event(
@@ -211,12 +210,10 @@ def chat(req: ChatRequest):
             },
         )
 
-        # ✅ (핵심) llm_task 실행
         stage = "llm_task_execute"
         if isinstance(action, dict) and isinstance(action.get("llm_task"), dict):
             llm_task = action["llm_task"]
 
-            # ✅ edu 모드 비관련 질문 차단 (NLU/validator 흐름 영향 없음)
             if (nlu2.get("domain") == "education") and llm_task.get("type") == "edu_answer_generation":
                 ok, why = is_edu_relevant(user_message)
                 if not ok:
@@ -239,7 +236,6 @@ def chat(req: ChatRequest):
                     reply = action.get("reply") if isinstance(action.get("reply"), dict) else {}
                     reply["text"] = (generated.get("text") or "").strip() or reply.get("text") or "처리할게요."
 
-                    # ui_hints 병합(있으면)
                     if isinstance(generated.get("ui_hints"), dict):
                         base = reply.get("ui_hints") if isinstance(reply.get("ui_hints"), dict) else {}
                         reply["ui_hints"] = {**base, **generated["ui_hints"]}
@@ -253,7 +249,6 @@ def chat(req: ChatRequest):
                         {"type": "edu_answer_generation", "reply_text_len": len(reply.get("text") or "")},
                     )
 
-        # state 저장
         stage = "state_saved"
         sessions.set(client_session_id, new_state, trace_id=trace_id)
         log_event(

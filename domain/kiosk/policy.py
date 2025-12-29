@@ -45,12 +45,15 @@ def _extract_store_scope(req: Any) -> Tuple[Optional[str], Optional[str]]:
 # Repo factory (default)
 # ----------------------------
 
-def default_catalog_repo() -> CatalogRepo:
+def default_catalog_repo(db_path: Optional[str] = None) -> CatalogRepo:
     """
     기본 Repo를 SQLite로 둠.
-    - env로 바꿀 수 있게 해둬야 운영/테스트가 편함.
+    - db_path: 인자로 받거나, env(KIOSK_MENU_DB_PATH)를 쓰거나, 기본값 data/menu.db 사용
     """
-    db_path = os.getenv("KIOSK_MENU_DB_PATH", "./menu.db")
+    if not db_path:
+        # ✅ [수정] 기본 경로를 ./menu.db -> data/menu.db 로 변경 (Seeder와 일치)
+        db_path = os.getenv("KIOSK_MENU_DB_PATH", "data/menu.db")
+    
     return SQLiteCatalogRepo(db_path=db_path)
 
 
