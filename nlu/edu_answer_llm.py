@@ -183,6 +183,31 @@ def _edu_generation_schema() -> Dict[str, Any]:
     }
 
 
+# ✅ [추가] 3단계 레벨별 프롬프트 가이드
+LEVEL_PROMPTS = {
+    # beginner -> 초등학생 수준
+    "beginner": (
+        "Target Audience: Elementary school students (Age 8-13).\n"
+        "Tone: Friendly, simple, and encouraging.\n"
+        "Guidelines: Use very easy vocabulary and short sentences. Use fun analogies to explain concepts."
+    ),
+
+    # intermediate -> 중~고등학생 수준
+    "intermediate": (
+        "Target Audience: Middle & High school students (Age 14-19).\n"
+        "Tone: Helpful, clear, and academic-lite.\n"
+        "Guidelines: Explain concepts clearly suitable for exam preparation. Use standard terminology but verify understanding."
+    ),
+
+    # advanced -> 대학교 이상 수준 (기본값)
+    "advanced": (
+        "Target Audience: University students and Adults.\n"
+        "Tone: Professional, academic, and detailed.\n"
+        "Guidelines: Treat the user as an educated adult. Provide deep insights, theoretical background, and comprehensive answers."
+    ),
+}
+
+
 def generate_edu_answer_with_llm(
     *,
     task_input: Dict[str, Any],
@@ -232,7 +257,23 @@ def generate_edu_answer_with_llm(
     meta = (task_input.get("meta") or {}) if isinstance(task_input.get("meta"), dict) else {}
     state = (task_input.get("state") or {}) if isinstance(task_input.get("state"), dict) else {}
 
-    system = (
+    # ✅ [변경] 레벨 감지 및 프롬프트 선택
+    # 1) Slot에서 확인
+    lvl_slot = slots.get("level")
+    if isinstance(lvl_slot, dict):
+        user_lvl = lvl_slot.get("value")
+    else:
+        user_lvl = lvl_slot
+
+    # 2) Slot 없으면 Meta에서 확인
+    if not user_lvl:
+        user_lvl = meta.get("user_level")
+
+    # 3) 기본값 fallback (advanced)
+    level_key = str(user_lvl).lower() if user_lvl else "advanced"
+    level_instruction = LEVEL_PROMPTS.get(level_key, LEVEL_PROMPTS["advanced"])
+
+    base_system = (
         "You are an educational assistant for Korean language learning.\n"
         "IMPORTANT:\n"
         "- Do NOT invent facts.\n"
@@ -241,11 +282,15 @@ def generate_edu_answer_with_llm(
         "- In ui_hints, ALWAYS include keys: domain, intent, menu_name, breadcrumb, url.\n"
     )
 
+    # ✅ [변경] 시스템 프롬프트에 레벨 지침 주입
+    system = f"{base_system}\n[TARGET AUDIENCE ADAPTATION]\n{level_instruction}\n"
+
     user_obj = {
         "user_message": user_message,
         "intent": intent,
         "slots": slots,
         "meta": meta,
+        "level_setting": level_key,  # 디버깅 정보
         "state_summary": {
             "conversation_id": state.get("conversation_id"),
             "turn_index": state.get("turn_index"),
@@ -264,7 +309,12 @@ def generate_edu_answer_with_llm(
     )
 
     if log_event and trace_id:
-        log_event(trace_id, "edu_llm_generate_ok", {"model": model, "intent": intent, "out_keys": list(out.keys())})
+        log_event(trace_id, "edu_llm_generate_ok", {
+            "model": model, 
+            "intent": intent, 
+            "level": level_key, 
+            "out_keys": list(out.keys())
+        })
 
     text = (out.get("text") or "").strip()
     ui_hints = out.get("ui_hints") if isinstance(out.get("ui_hints"), dict) else {}

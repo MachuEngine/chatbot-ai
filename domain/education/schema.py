@@ -79,7 +79,7 @@ EDUCATION_SCHEMA = {
 
         # --- Context / Personalization (Sticky Candidates) ---
         "subject": {"type": "enum", "values": ["korean", "english", "math", "social", "science", "other"]},
-        "level": {"type": "enum", "values": ["beginner", "intermediate", "advanced", "elementary", "middle", "high", "adult"]},
+        "level": {"type": "enum", "values": ["beginner", "intermediate", "advanced"]},
         "language": {"type": "enum", "values": ["ko", "en", "other"]},
         
         # --- Style & Preference ---
