@@ -36,6 +36,7 @@ class SessionManager:
             "conversation_id": f"conv_{int(now*1000)}",
             "turn_index": 0,
             "history_summary": "",
+            "history": [],  # ✅ [추가] 대화 히스토리 리스트
             "current_domain": None,
             "active_intent": None,
             "slots": {},
@@ -82,6 +83,9 @@ class SessionManager:
             st["created_at"] = st["updated_at"]
         if st.get("slots") is None:
             st["slots"] = {}
+        # Ensure history exists
+        if "history" not in st:
+            st["history"] = []
 
         self.r.set(k, json.dumps(st, ensure_ascii=False))
         self.r.expire(k, self.ttl_seconds)
@@ -93,3 +97,24 @@ class SessionManager:
                 "turn_index": st.get("turn_index"),
                 "ttl_seconds": self.ttl_seconds,
             })
+
+    def add_history(self, client_session_id: str, role: str, message: str, limit: int = 30) -> None:
+        """
+        대화 내용을 히스토리에 추가하고 저장합니다.
+        (주의: API 핸들러 내에서 state 객체를 직접 조작하는 경우 이 메서드 대신 state['history'].append를 사용하는 것이 동기화에 유리할 수 있습니다.)
+        """
+        state = self.get(client_session_id)
+        history = state.get("history", [])
+        
+        history.append({
+            "role": role, 
+            "content": message, 
+            "ts": time.time()
+        })
+        
+        # 최근 N개 유지
+        if len(history) > limit:
+            history = history[-limit:]
+            
+        state["history"] = history
+        self.set(client_session_id, state)

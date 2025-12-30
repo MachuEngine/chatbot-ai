@@ -213,6 +213,7 @@ def generate_edu_answer_with_llm(
     task_input: Dict[str, Any],
     user_message: str,
     trace_id: Optional[str] = None,
+    history: Optional[List[Dict[str, Any]]] = None, # ✅ [변경] history 인자 추가
 ) -> Dict[str, Any]:
     
     intent = ((task_input.get("intent") or "") if isinstance(task_input, dict) else "").strip()
@@ -282,8 +283,24 @@ def generate_edu_answer_with_llm(
         "- In ui_hints, ALWAYS include keys: domain, intent, menu_name, breadcrumb, url.\n"
     )
 
-    # ✅ [변경] 시스템 프롬프트에 레벨 지침 주입
+    # ✅ [변경] 시스템 프롬프트에 레벨 지침 + 히스토리 주입
     system = f"{base_system}\n[TARGET AUDIENCE ADAPTATION]\n{level_instruction}\n"
+    
+    # 히스토리 텍스트 변환
+    history_text = ""
+    if history:
+        # 최근 5개만 텍스트로 변환 (토큰 절약)
+        recent_history = history[-30:]
+        lines = []
+        for h in recent_history:
+            role = h.get("role", "unknown")
+            content = h.get("content", "")
+            if content:
+                lines.append(f"{role}: {content}")
+        if lines:
+            history_text = "Conversation History:\n" + "\n".join(lines) + "\n"
+
+    system += f"\n{history_text}"
 
     user_obj = {
         "user_message": user_message,
@@ -313,6 +330,7 @@ def generate_edu_answer_with_llm(
             "model": model, 
             "intent": intent, 
             "level": level_key, 
+            "history_len": len(history) if history else 0,
             "out_keys": list(out.keys())
         })
 

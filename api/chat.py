@@ -1,3 +1,4 @@
+# api/chat.py
 from __future__ import annotations
 
 import uuid
@@ -15,7 +16,6 @@ from nlu.edu_answer_llm import generate_edu_answer_with_llm
 from nlu.edu_guard import is_edu_relevant
 from utils.logging import log_event
 from utils.trace_utils import state_summary, nlu_diff_hint
-# ✅ [변경] Repository 생성을 위한 팩토리 함수를 import합니다.
 from domain.kiosk.policy import default_catalog_repo
 
 router = APIRouter()
@@ -83,9 +83,6 @@ def _exc_info(e: Exception) -> Dict[str, Any]:
 
 
 def _safe_meta_for_validator(meta: Any) -> Dict[str, Any]:
-    """
-    validator는 Dict meta를 기대하므로 pydantic -> dict 변환
-    """
     if meta is None:
         return {}
     if hasattr(meta, "model_dump"):
@@ -155,6 +152,16 @@ def chat(req: ChatRequest):
     try:
         stage = "state_loaded"
         state = sessions.get(client_session_id, trace_id=trace_id)
+        
+        # ✅ [추가] 사용자 메시지를 현재 state의 history에 추가 (메모리상 업데이트)
+        # NLU 및 Generation 단계에서 이 history를 참고할 수 있게 함
+        if "history" not in state:
+            state["history"] = []
+        state["history"].append({"role": "user", "content": user_message, "ts": time.time()})
+        # 길이 제한 (최근 10개)
+        if len(state["history"]) > 30:
+            state["history"] = state["history"][-30:]
+
         log_event(trace_id, "state_loaded", {"state_summary": state_summary(state)})
 
         stage = "candidates_picked"
@@ -185,12 +192,8 @@ def chat(req: ChatRequest):
 
         stage = "validation_result"
         meta_dict = _safe_meta_for_validator(req.meta)
-
-        # ✅ [변경] Repo 객체를 생성합니다.
-        # (실무에서는 DB Connection Pool이나 DI Container를 통해 주입받는 것이 좋습니다)
         catalog_repo = default_catalog_repo()
 
-        # ✅ [변경] 생성된 Repo를 Validator에 전달합니다.
         action, new_state = validate_and_build_action(
             domain=(nlu2.get("domain") or "").strip(),
             intent=(nlu2.get("intent") or "").strip(),
@@ -198,7 +201,7 @@ def chat(req: ChatRequest):
             meta=meta_dict,
             state=state if isinstance(state, dict) else {},
             trace_id=trace_id,
-            catalog=catalog_repo,  # DI Injection
+            catalog=catalog_repo,
         )
 
         log_event(
@@ -227,9 +230,13 @@ def chat(req: ChatRequest):
                     log_event(trace_id, "edu_guard_blocked", {"reason": why})
 
                 else:
+                    # ✅ [변경] history 전달 (Generation에 활용)
+                    history_list = state.get("history", [])
+                    
                     generated = generate_edu_answer_with_llm(
                         task_input=llm_task.get("input") or {},
                         user_message=user_message,
+                        history=history_list, # history 전달
                         trace_id=trace_id,
                     )
 
@@ -248,6 +255,19 @@ def chat(req: ChatRequest):
                         "llm_task_execute_ok",
                         {"type": "edu_answer_generation", "reply_text_len": len(reply.get("text") or "")},
                     )
+
+        # ✅ [추가] 봇의 응답을 new_state의 history에 추가
+        reply_text = ""
+        if isinstance(action, dict) and isinstance(action.get("reply"), dict):
+            reply_text = action["reply"].get("text", "")
+        
+        if reply_text:
+            if "history" not in new_state:
+                new_state["history"] = state.get("history", [])[:] # 복사해서 사용
+            
+            new_state["history"].append({"role": "assistant", "content": reply_text, "ts": time.time()})
+            if len(new_state["history"]) > 30:
+                new_state["history"] = new_state["history"][-30:]
 
         stage = "state_saved"
         sessions.set(client_session_id, new_state, trace_id=trace_id)
