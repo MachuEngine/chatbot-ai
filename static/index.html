@@ -173,6 +173,28 @@
       font-size: 18px;
     }
 
+    /* ✅ [New] Typing Indicator (Thinking Animation) */
+    .typing-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 0;
+    }
+    .typing-dot {
+      width: 6px;
+      height: 6px;
+      background-color: var(--text-sub);
+      border-radius: 50%;
+      animation: typing 1.4s infinite ease-in-out both;
+    }
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    
+    @keyframes typing {
+      0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+
     .meta-info {
       font-size: 11px;
       color: var(--text-muted);
@@ -531,6 +553,31 @@
     }, 10);
   }
 
+  // ✅ [New] Show Thinking Animation
+  function showThinking() {
+    const el = document.createElement("div");
+    el.className = "msg bot";
+    el.id = "thinking-bubble";
+    el.innerHTML = `
+      <div class="typing-indicator">
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+      </div>
+    `;
+    $("msgs").appendChild(el);
+    setTimeout(() => {
+      $("msgs").scrollTo({ top: $("msgs").scrollHeight, behavior: 'smooth' });
+    }, 10);
+    return el;
+  }
+
+  // ✅ [New] Remove Thinking Animation
+  function removeThinking() {
+    const el = $("thinking-bubble");
+    if (el) el.remove();
+  }
+
   function setStatus(kind, text) {
     const dot = $("statusDot");
     const txt = $("statusText");
@@ -590,9 +637,12 @@
     addMsg("user", user_message, `${nowTime()}`);
     setStatus("sending", "Thinking...");
 
+    // ✅ [Action] Show Thinking Bubble
+    showThinking();
+
     const body = { user_message, meta };
     
-    // ✅ Display Request Payload immediately
+    // Display Request Payload immediately
     setJson($("reqJson"), body);
     
     saveState({ lastBody: body });
@@ -609,6 +659,9 @@
       const json = await res.json().catch(() => ({}));
       const trace = json?.trace_id || json?.detail?.trace_id || "-";
       $("traceId").textContent = trace;
+
+      // ✅ [Action] Remove Thinking Bubble before showing result
+      removeThinking();
 
       if (!res.ok) {
         addMsg("bot", `Error ${res.status}: ` + (json.detail || "Unknown error"), `${dt}ms`);
@@ -636,6 +689,7 @@
       saveState({ lastResponse: json });
 
     } catch (err) {
+      removeThinking(); // Ensure removal on network error
       addMsg("bot", "Network Error: " + String(err), nowTime());
       setStatus("error", "Network Error");
     }
