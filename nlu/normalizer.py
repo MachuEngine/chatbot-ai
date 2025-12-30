@@ -124,8 +124,6 @@ STICKY_CONTEXT_KEYS = {
     "style",
     "tone",
     "language",
-    "include_examples",
-    "target_improvements",
 }
 
 # ✅ Topic Keys: 주제가 전환되면 사라짐 (Follow-up일 때만 유지)
@@ -136,6 +134,9 @@ TOPIC_CONTEXT_KEYS = {
     "question",
     "context",
     "rubric",
+    "include_examples",
+    "target_improvements",
+    "request_type",
 }
 
 
@@ -219,8 +220,8 @@ def apply_session_rules(
     domain = _safe_str(n.get("domain") or st.get("current_domain")).strip()
     intent = _safe_str(n.get("intent") or st.get("active_intent")).strip()
 
-    slots_in = _safe_dict(n.get("slots"))
-    prev_slots = _safe_dict(st.get("slots"))
+    slots_in = _safe_dict(n.get("slots")) # 현재 턴 슬롯 
+    prev_slots = _safe_dict(st.get("slots")) # 이전 턴 슬롯
 
     # ----------------------------
     # 1. Kiosk 및 기타(education 제외) - 기존 로직 유지

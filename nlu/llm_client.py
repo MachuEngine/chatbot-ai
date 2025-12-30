@@ -1,3 +1,4 @@
+# nlu/llm_client.py
 from __future__ import annotations
 
 import os
@@ -337,7 +338,6 @@ def _openai_nlu_two_stage(
     # --- Stage 2: Slot Extraction ---
     slot_guidance: Dict[str, Any] = {}
 
-    # ✅ 도메인별 핵심 규칙 (간결하게 정리)
     if domain == "kiosk":
         slot_guidance = {
             "RULES": [
@@ -357,7 +357,6 @@ def _openai_nlu_two_stage(
             ]
         }
 
-    # ✅ 시스템 프롬프트 (핵심 지침만 유지)
     system2 = (
         "You are an NLU slot extractor.\n"
         "Extract slots from the current 'user_message' based on the schema.\n"
@@ -371,8 +370,10 @@ def _openai_nlu_two_stage(
 
     schema2 = build_slots_schema(domain, intent, domain_schema)
     
+    # ✅ [수정] base_user 대신 현재 메시지와 메타만 포함하여 상태(History) 제거
     user2 = {
-        **base_user,
+        "user_message": msg,
+        "meta": _safe_meta_dump(meta),
         "chosen": {"domain": domain, "intent": intent},
         "slot_spec": {
             "required_slots": (domain_schema.get("intents", {}).get(intent, {}) or {}).get("required_slots") or [],
