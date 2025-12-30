@@ -40,7 +40,7 @@ class PDFEngine:
             self.filename = filename
             print(f"[PDFEngine] Loaded {filename} with {len(self.chunks)} chunks.")
 
-    def search(self, query: str, top_k: int = 3) -> str:
+    def search(self, query: str, top_k: int = 3, threshold: float = 0.3) -> str:
         if not self.has_data:
             return ""
 
@@ -53,9 +53,12 @@ class PDFEngine:
         
         # 3. Top-K 추출
         top_indices = scores.argsort()[-top_k:][::-1]
+
+        # 유사도 점수가 threshold 이상인 것만 필터링
+        valid_indices = [i for i in top_indices if scores[i] >= threshold]
         
         results = []
-        for idx in top_indices:
+        for idx in valid_indices:
             results.append(self.chunks[idx])
             
         return "\n---\n".join(results)
