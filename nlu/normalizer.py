@@ -66,6 +66,16 @@ def _has_nonempty(v: Any) -> bool:
     return True
 
 
+def _has_valid_value(slot: Any) -> bool:
+    """슬롯에 유효한 값이 있는지 확인 (null 또는 빈 문자열 제외)"""
+    val = _slot_value(slot)
+    if val is None:
+        return False
+    if isinstance(val, str) and not val.strip():
+        return False
+    return True
+
+
 def _last_bot_action(state: Optional[Dict[str, Any]]) -> str:
     if isinstance(state, dict):
         return _safe_str(state.get("last_bot_action"))
@@ -334,7 +344,13 @@ def apply_session_rules(
     # (1) Sticky Keys Logic
     # 이 키들은 새로운 값이 들어오지 않는 한 무조건 이전 턴의 값을 유지
     prev_sticky = {k: v for k, v in prev_slots.items() if k in STICKY_CONTEXT_KEYS}
-    new_sticky = {k: v for k, v in slots_in.items() if k in STICKY_CONTEXT_KEYS}
+    
+    # ✅ [수정] 값이 실제로 있는 경우에만 new_sticky에 포함
+    new_sticky = {
+        k: v 
+        for k, v in slots_in.items() 
+        if k in STICKY_CONTEXT_KEYS and _has_valid_value(v)
+    }
     
     # 새 값이 있으면 덮어쓰고, 없으면 이전 값 유지
     merged_slots.update(_merge_dict(prev_sticky, new_sticky))
@@ -342,7 +358,13 @@ def apply_session_rules(
     # (2) Topic Context Logic
     # Follow-up(꼬리질문)인 경우에만 이전 토픽/콘텐츠를 유지
     prev_topic = {k: v for k, v in prev_slots.items() if k in TOPIC_CONTEXT_KEYS}
-    new_topic = {k: v for k, v in slots_in.items() if k in TOPIC_CONTEXT_KEYS}
+    
+    # ✅ [수정] 값이 실제로 있는 경우에만 new_topic에 포함
+    new_topic = {
+        k: v 
+        for k, v in slots_in.items() 
+        if k in TOPIC_CONTEXT_KEYS and _has_valid_value(v)
+    }
     
     policy_action = ""
     
