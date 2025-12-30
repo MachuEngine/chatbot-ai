@@ -13,7 +13,7 @@ from nlu.llm_client import nlu_with_llm
 from nlu.validator import validate_and_build_action
 from nlu.normalizer import apply_session_rules
 from nlu.edu_answer_llm import generate_edu_answer_with_llm
-from nlu.edu_guard import is_edu_relevant
+# from nlu.edu_guard import is_edu_relevant  <-- ✅ 제거 (모든 질문 허용)
 from utils.logging import log_event
 from utils.trace_utils import state_summary, nlu_diff_hint
 from domain.kiosk.policy import default_catalog_repo
@@ -153,12 +153,11 @@ def chat(req: ChatRequest):
         stage = "state_loaded"
         state = sessions.get(client_session_id, trace_id=trace_id)
         
-        # ✅ [추가] 사용자 메시지를 현재 state의 history에 추가 (메모리상 업데이트)
-        # NLU 및 Generation 단계에서 이 history를 참고할 수 있게 함
+        # ✅ 사용자 메시지를 히스토리에 추가
         if "history" not in state:
             state["history"] = []
         state["history"].append({"role": "user", "content": user_message, "ts": time.time()})
-        # 길이 제한 (최근 10개)
+        # 길이 제한 (최근 30개 유지 - 이전 대화 기억력 강화)
         if len(state["history"]) > 30:
             state["history"] = state["history"][-30:]
 
@@ -218,54 +217,45 @@ def chat(req: ChatRequest):
             llm_task = action["llm_task"]
 
             if (nlu2.get("domain") == "education") and llm_task.get("type") == "edu_answer_generation":
-                ok, why = is_edu_relevant(user_message)
-                if not ok:
-                    reply = action.get("reply") if isinstance(action.get("reply"), dict) else {}
-                    reply["text"] = (
-                        "지금은 한국어 학습(발음/문법/작문/요약/첨삭 등) 관련 질문만 도와줄 수 있어요.\n"
-                        "예) '연음이 뭐야?', '이 문장 맞춤법 고쳐줘', '다음 글 요약해줘'"
-                    )
-                    action["reply"] = reply
-                    action.pop("llm_task", None)
-                    log_event(trace_id, "edu_guard_blocked", {"reason": why})
+                
+                # ✅ [변경] Guard 제거 -> 모든 질문 허용
+                # ✅ [변경] History 전달 (Generation Context)
+                history_list = state.get("history", [])
+                
+                generated = generate_edu_answer_with_llm(
+                    task_input=llm_task.get("input") or {},
+                    user_message=user_message,
+                    history=history_list,
+                    trace_id=trace_id,
+                )
 
-                else:
-                    # ✅ [변경] history 전달 (Generation에 활용)
-                    history_list = state.get("history", [])
-                    
-                    generated = generate_edu_answer_with_llm(
-                        task_input=llm_task.get("input") or {},
-                        user_message=user_message,
-                        history=history_list, # history 전달
-                        trace_id=trace_id,
-                    )
+                reply = action.get("reply") if isinstance(action.get("reply"), dict) else {}
+                reply["text"] = (generated.get("text") or "").strip() or reply.get("text") or "처리할게요."
 
-                    reply = action.get("reply") if isinstance(action.get("reply"), dict) else {}
-                    reply["text"] = (generated.get("text") or "").strip() or reply.get("text") or "처리할게요."
+                if isinstance(generated.get("ui_hints"), dict):
+                    base = reply.get("ui_hints") if isinstance(reply.get("ui_hints"), dict) else {}
+                    reply["ui_hints"] = {**base, **generated["ui_hints"]}
 
-                    if isinstance(generated.get("ui_hints"), dict):
-                        base = reply.get("ui_hints") if isinstance(reply.get("ui_hints"), dict) else {}
-                        reply["ui_hints"] = {**base, **generated["ui_hints"]}
+                action["reply"] = reply
+                action.pop("llm_task", None)
 
-                    action["reply"] = reply
-                    action.pop("llm_task", None)
+                log_event(
+                    trace_id,
+                    "llm_task_execute_ok",
+                    {"type": "edu_answer_generation", "reply_text_len": len(reply.get("text") or "")},
+                )
 
-                    log_event(
-                        trace_id,
-                        "llm_task_execute_ok",
-                        {"type": "edu_answer_generation", "reply_text_len": len(reply.get("text") or "")},
-                    )
-
-        # ✅ [추가] 봇의 응답을 new_state의 history에 추가
+        # ✅ 봇의 응답을 히스토리에 추가
         reply_text = ""
         if isinstance(action, dict) and isinstance(action.get("reply"), dict):
             reply_text = action["reply"].get("text", "")
         
         if reply_text:
             if "history" not in new_state:
-                new_state["history"] = state.get("history", [])[:] # 복사해서 사용
+                new_state["history"] = state.get("history", [])[:]
             
             new_state["history"].append({"role": "assistant", "content": reply_text, "ts": time.time()})
+            # 길이 제한 (최근 30개 유지)
             if len(new_state["history"]) > 30:
                 new_state["history"] = new_state["history"][-30:]
 

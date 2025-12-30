@@ -350,9 +350,10 @@ def _openai_nlu_two_stage(
     elif domain == "education":
         slot_guidance = {
             "RULES": [
-                "1. TOPIC: Extract 'topic' ONLY when a specific concept is named (e.g. 'Yeoneum', 'Batchim').",
-                "2. NO GENERIC TOPICS: Do NOT extract generic words (e.g. 'example', 'meaning', 'question', 'word') as 'topic'. Use 'request_type' instead.",
-                "3. CONTEXT: If the user asks for details (e.g. 'Give me an example') without naming a topic, leave 'topic' NULL (system will use history).",
+                # ✅ [수정] 범용 주제 추출 가이드
+                "1. TOPIC: Extract the main subject or concept the user wants to learn (e.g., 'Quantum Mechanics', 'French Revolution', 'Subjunctive Mood').",
+                "2. NO GENERIC TOPICS: Do NOT extract generic words (e.g., 'explain', 'help', 'question') as 'topic'. Use 'request_type' instead.",
+                "3. CONTEXT: If the topic is unclear, leave it NULL (system will use history).",
                 "4. PAYLOAD: Use edu_payload fields if present."
             ]
         }
@@ -370,7 +371,7 @@ def _openai_nlu_two_stage(
 
     schema2 = build_slots_schema(domain, intent, domain_schema)
     
-    # ✅ [수정] base_user 대신 현재 메시지와 메타만 포함하여 상태(History) 제거
+    # ✅ [유지] Stage 2는 Stateless로 동작 (Phantom Slot 방지)
     user2 = {
         "user_message": msg,
         "meta": _safe_meta_dump(meta),

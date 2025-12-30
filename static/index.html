@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Chatbot AI - Gemini Theme</title>
+  <title>Chatbot AI - Universal Tutor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
@@ -174,7 +174,7 @@
       font-size: 18px;
     }
 
-    /* ✅ [New] Typing Indicator (Thinking Animation) */
+    /* Typing Indicator (Thinking Animation) */
     .typing-indicator {
       display: inline-flex;
       align-items: center;
@@ -261,8 +261,6 @@
       border-radius: 20px;
       transition: .2s;
     }
-    
-    /* Primary Send Button (Icon style) */
     .btn-send {
       width: 40px;
       height: 40px;
@@ -278,7 +276,6 @@
     .btn-send:hover { opacity: 0.9; transform: scale(1.05); }
     .btn-send svg { width: 20px; height: 20px; fill: currentColor; }
 
-    /* Secondary Buttons */
     .btn-text {
       background: transparent;
       color: var(--text-sub);
@@ -303,42 +300,45 @@
     }
     .btn-reset:hover { background: rgba(242, 184, 181, 0.1); }
 
-    /* --- Controls Panel --- */
+    /* --- Controls Panel (Compact Version) --- */
     .controls-panel {
-      padding: 20px;
+      padding: 12px;
       overflow-y: auto;
-      gap: 16px;
+      gap: 10px;
       display: flex;
       flex-direction: column;
     }
+    
     .section-label {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 8px;
-      margin-top: 12px;
+      margin-bottom: 4px;
+      margin-top: 8px;
     }
     
     input, select {
       width: 100%;
       background: var(--surface-2);
       border: 1px solid transparent;
-      border-radius: 8px;
-      padding: 10px 12px;
+      border-radius: 6px;
+      padding: 6px 10px;
       color: var(--text-main);
       font-family: var(--font-body);
-      font-size: 13px;
+      font-size: 12px;
+      height: 32px;
       outline: none;
-      margin-bottom: 10px;
+      margin-bottom: 0;
     }
     input:focus, select:focus {
       border-color: var(--accent-blue);
       background: #252628;
     }
 
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
     
     .code-block {
       background: #000;
@@ -349,8 +349,8 @@
       color: var(--text-sub);
       overflow-x: auto;
       border: 1px solid var(--line);
-      max-height: 200px; /* Limit height */
-      white-space: pre-wrap; /* Wrap long text */
+      max-height: 200px; 
+      white-space: pre-wrap; 
     }
 
     .debug-header {
@@ -372,6 +372,26 @@
     .status-dot.sending { background: var(--accent-blue); box-shadow: 0 0 8px var(--accent-blue); }
     .status-dot.error { background: var(--error); }
 
+    /* PDF Drop Zone (Compact) */
+    .drop-zone {
+      border: 2px dashed var(--line);
+      border-radius: var(--radius-m);
+      padding: 12px;
+      text-align: center;
+      color: var(--text-sub);
+      transition: .2s;
+      background: rgba(255,255,255,0.02);
+      margin-bottom: 4px;
+      cursor: pointer;
+    }
+    .drop-zone.dragover {
+      border-color: var(--accent-blue);
+      background: rgba(168, 199, 250, 0.1);
+      color: var(--accent-blue);
+    }
+    .drop-text { font-size: 12px; margin-top: 4px; }
+    .drop-icon { font-size: 20px; }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -387,7 +407,7 @@
   <header>
     <div class="brand">
       <span class="brand-icon">🪐</span>
-      Chatbot AI Test Console
+      Universal Tutor Console
     </div>
     <div class="pill-badge" id="endpointChip">http://localhost:8000/api/chat</div>
   </header>
@@ -403,14 +423,14 @@
 
     <div class="msgs" id="msgs">
       <div class="msg bot" style="opacity:0.6;">
-        안녕하세요! 무엇을 도와드릴까요?<br>
+        안녕하세요! 저는 만능 과외 선생님입니다. 무엇이든 물어보세요!<br>
         <span class="meta-info">System Init</span>
       </div>
     </div>
 
     <div class="composer">
       <div class="input-wrapper">
-        <textarea id="userMessage" rows="1" placeholder="메시지를 입력하세요... (Enter to send, Shift+Enter for newline)"></textarea>
+        <textarea id="userMessage" rows="1" placeholder="질문을 입력하세요... (Enter to send)"></textarea>
         <button id="btnSend" class="btn-send">
           <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
@@ -431,45 +451,43 @@
     <div class="card-hd">
       <span class="card-title">Configuration</span>
       <div style="display:flex; gap:6px;">
-        <button class="btn-text" id="btnPresetEdu" style="font-size:11px;">EDU</button>
-        <button class="btn-text" id="btnPresetKiosk" style="font-size:11px;">KIOSK</button>
+        <button class="btn-text" id="btnPresetEdu" style="font-size:11px;">Reset Settings</button>
       </div>
     </div>
 
     <div class="controls-panel">
       
-      <div>
-        <div class="section-label">Endpoint</div>
-        <input id="endpoint" value="http://localhost:8000/api/chat" />
+      <div id="pdfDropZone" class="drop-zone">
+        <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+          <div class="drop-icon">📄</div>
+          <div class="drop-text" id="dropText">Drag PDF here for RAG</div>
+        </div>
+        <input type="file" id="pdfInput" accept=".pdf" style="display:none" />
       </div>
 
       <div>
-        <div class="section-label">Session & Mode</div>
-        <div class="grid-2">
+        <div class="section-label">Connection</div>
+        <input id="endpoint" value="http://localhost:8000/api/chat" placeholder="Endpoint URL" style="margin-bottom:6px;" />
+        
+        <div class="grid-3">
           <input id="clientSessionId" value="sess_web_1" placeholder="Session ID" />
           <select id="mode">
-            <option value="edu">Edu Mode</option>
-            <option value="kiosk">Kiosk Mode</option>
+            <option value="edu" selected>Edu</option>
           </select>
+          <input id="domain" value="education" placeholder="Domain" />
         </div>
-        <input id="domain" value="education" placeholder="Domain (optional)" />
       </div>
 
       <div>
-        <div class="section-label">Education Settings</div>
-        <select id="userLevel">
-            <option value="beginner">Beginner (초등 - 쉬운 표현)</option>
-            <option value="intermediate">Intermediate (중고등 - 학습용)</option>
-            <option value="advanced" selected>Advanced (대학/성인 - 심화)</option>
-        </select>
-      </div>
-
-      <div>
-        <div class="section-label">Environment</div>
-        <div class="grid-2">
+        <div class="section-label">Settings</div>
+        <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:8px;">
+          <select id="userLevel">
+              <option value="beginner">Beginner (초급)</option>
+              <option value="intermediate">Intermediate (중급)</option>
+              <option value="advanced" selected>Advanced (심화)</option>
+          </select>
           <select id="deviceType">
             <option value="web">Web</option>
-            <option value="kiosk">Kiosk Machine</option>
             <option value="mobile">Mobile</option>
           </select>
           <select id="inputType">
@@ -479,32 +497,23 @@
         </div>
       </div>
 
-      <div>
-        <div class="section-label">Kiosk Details</div>
-        <div class="grid-2">
-          <input id="kioskType" value="cafe" placeholder="Type" />
-          <input id="storeId" value="store_01" placeholder="Store ID" />
-        </div>
-        <input id="dbPath" value="data/menu.db" placeholder="Menu DB Path" />
-      </div>
-
-      <div>
-        <div class="section-label">Debug Console</div>
-        <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="flex:1; display:flex; flex-direction:column; min-height:0;">
+        <div class="section-label">Debug Data</div>
+        <div style="overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:4px;">
           
           <div>
-            <span class="debug-header" style="color:var(--accent-blue);">📤 Request Payload (Sent)</span>
-            <div class="code-block" id="reqJson">{}</div>
+            <span class="debug-header" style="color:var(--accent-blue);">📤 Sent</span>
+            <div class="code-block" id="reqJson" style="max-height:80px;">{}</div>
           </div>
 
           <div>
-             <span class="debug-header" style="color:var(--success);">📥 NLU Data (Reply)</span>
-             <div class="code-block" id="replyJson">{}</div>
+             <span class="debug-header" style="color:var(--success);">📥 Reply</span>
+             <div class="code-block" id="replyJson" style="max-height:120px;">{}</div>
           </div>
 
           <div>
-             <span class="debug-header" style="color:var(--text-sub);">💾 State Data (Context)</span>
-             <div class="code-block" id="stateJson">{}</div>
+             <span class="debug-header" style="color:var(--text-sub);">💾 State</span>
+             <div class="code-block" id="stateJson" style="max-height:120px;">{}</div>
           </div>
 
         </div>
@@ -522,7 +531,7 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const storeKey = "chatbot_gemini_theme_v1";
+  const storeKey = "chatbot_tutor_config_v4"; // Config key updated
 
   function nowTime() {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -539,7 +548,6 @@
     const el = document.createElement("div");
     el.className = "msg " + (role === "user" ? "user" : "bot");
     
-    // HTML insertion for linkify
     el.innerHTML = linkify(text || "");
 
     if (metaLine) {
@@ -554,7 +562,7 @@
     }, 10);
   }
 
-  // ✅ [New] Show Thinking Animation
+  // Show Thinking Animation
   function showThinking() {
     const el = document.createElement("div");
     el.className = "msg bot";
@@ -573,7 +581,6 @@
     return el;
   }
 
-  // ✅ [New] Remove Thinking Animation
   function removeThinking() {
     const el = $("thinking-bubble");
     if (el) el.remove();
@@ -609,12 +616,7 @@
       user_level: $("userLevel").value.trim(),
       ...extra,
     };
-
-    if (meta.mode === "kiosk") {
-      meta.kiosk_type = $("kioskType").value.trim() || "cafe";
-      meta.store_id = $("storeId").value.trim() || "store_01";
-      meta.db_path = $("dbPath").value.trim() || "data/menu.db";
-    }
+    
     meta.site_nav_db_path = $("siteNavDbPath").value.trim() || "data/site_nav.sqlite3";
 
     Object.keys(meta).forEach(k => {
@@ -637,15 +639,10 @@
     const meta = buildMeta();
     addMsg("user", user_message, `${nowTime()}`);
     setStatus("sending", "Thinking...");
-
-    // ✅ [Action] Show Thinking Bubble
     showThinking();
 
     const body = { user_message, meta };
-    
-    // Display Request Payload immediately
     setJson($("reqJson"), body);
-    
     saveState({ lastBody: body });
 
     try {
@@ -661,7 +658,6 @@
       const trace = json?.trace_id || json?.detail?.trace_id || "-";
       $("traceId").textContent = trace;
 
-      // ✅ [Action] Remove Thinking Bubble before showing result
       removeThinking();
 
       if (!res.ok) {
@@ -682,6 +678,11 @@
         debugInfo += ` • <span style='color:var(--accent-blue)'>${meta.user_level}</span>`;
       }
 
+      // ✅ [Backend Flag Check] RAG 사용 여부 배지 표시
+      if (reply?.ui_hints?.used_pdf_rag) {
+        debugInfo += ` • <span style='color:var(--success); font-weight:bold;'>📄 PDF RAG</span>`;
+      }
+
       addMsg("bot", text, debugInfo);
       setStatus("idle", "Ready");
       
@@ -690,7 +691,7 @@
       saveState({ lastResponse: json });
 
     } catch (err) {
-      removeThinking(); // Ensure removal on network error
+      removeThinking();
       addMsg("bot", "Network Error: " + String(err), nowTime());
       setStatus("error", "Network Error");
     }
@@ -707,16 +708,17 @@
 
   function loadExamples() {
     const examples = [
-      { mode:"edu", domain:"education", msg:"연음이 뭐야?" },
-      { mode:"edu", domain:"education", msg:"문장 학습 메뉴 찾아줘" },
-      { mode:"kiosk", domain:"kiosk", msg:"아이스 아메리카노 한 잔" },
+      { mode:"edu", domain:"education", msg:"양자역학이 뭐야?" },
+      { mode:"edu", domain:"education", msg:"프랑스 혁명의 원인 알려줘" },
+      { mode:"edu", domain:"education", msg:"Python 리스트 사용법" },
+      { mode:"edu", domain:"education", msg:"사이트 메뉴 어디있어?" },
     ];
     const pick = examples[Math.floor(Math.random() * examples.length)];
     $("mode").value = pick.mode;
     $("domain").value = pick.domain;
     $("userMessage").value = pick.msg;
     
-    if(pick.mode === 'kiosk') presetKiosk(); else presetEdu();
+    presetEdu();
   }
 
   function presetEdu() {
@@ -724,10 +726,63 @@
     $("domain").value = "education";
     $("deviceType").value = "web";
   }
-  function presetKiosk() {
-    $("mode").value = "kiosk";
-    $("domain").value = "kiosk";
-    $("deviceType").value = "kiosk";
+
+  // --- PDF Drop Zone Logic ---
+  const dropZone = $("pdfDropZone");
+  const fileInput = $("pdfInput");
+  const dropText = $("dropText");
+
+  dropZone.addEventListener("click", () => fileInput.click());
+
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files.length) uploadFile(e.target.files[0]);
+  });
+
+  dropZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropZone.classList.add("dragover");
+  });
+
+  dropZone.addEventListener("dragleave", () => {
+    dropZone.classList.remove("dragover");
+  });
+
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    if (e.dataTransfer.files.length) {
+      uploadFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  async function uploadFile(file) {
+    if (file.type !== "application/pdf") {
+      alert("PDF 파일만 가능합니다.");
+      return;
+    }
+
+    dropText.innerHTML = `Uploading <b>${file.name}</b>...`;
+    
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("/api/upload_pdf", {
+        method: "POST",
+        body: formData
+      });
+      const json = await res.json();
+      
+      if (res.ok) {
+        dropText.innerHTML = `✅ <b>${json.filename}</b> Loaded!<br>(${json.chunks} chunks)`;
+        dropZone.style.borderColor = "var(--success)";
+      } else {
+        dropText.textContent = "Upload Failed";
+      }
+    } catch (e) {
+      console.error(e);
+      dropText.textContent = "Error: " + e.message;
+    }
   }
 
   // --- Persistence ---
@@ -755,8 +810,7 @@
   $("btnClear").addEventListener("click", () => { clearAll(); saveState({}); });
   $("btnExamples").addEventListener("click", loadExamples);
   $("btnPresetEdu").addEventListener("click", presetEdu);
-  $("btnPresetKiosk").addEventListener("click", presetKiosk);
-
+  
   const ta = $("userMessage");
   ta.addEventListener("input", function() {
     this.style.height = 'auto';

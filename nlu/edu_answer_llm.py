@@ -14,6 +14,7 @@ except Exception:
     log_event = None
 
 from rag.site_nav_retriever import search_site_nav
+from rag.pdf_engine import global_pdf_engine
 
 OPENAI_API_URL = "https://api.openai.com/v1/responses"
 
@@ -183,27 +184,22 @@ def _edu_generation_schema() -> Dict[str, Any]:
     }
 
 
-# ✅ [추가] 3단계 레벨별 프롬프트 가이드
+# 범용 레벨 가이드 (과목 불문)
 LEVEL_PROMPTS = {
-    # beginner -> 초등학생 수준
     "beginner": (
-        "Target Audience: Elementary school students (Age 8-13).\n"
-        "Tone: Friendly, simple, and encouraging.\n"
-        "Guidelines: Use very easy vocabulary and short sentences. Use fun analogies to explain concepts."
+        "Target Audience: Elementary/Middle school students.\n"
+        "Tone: Encouraging, simple, and fun using analogies.\n"
+        "Guidelines: Avoid complex jargon. Explain like I'm 10 years old. Use emojis to keep it engaging."
     ),
-
-    # intermediate -> 중~고등학생 수준
     "intermediate": (
-        "Target Audience: Middle & High school students (Age 14-19).\n"
-        "Tone: Helpful, clear, and academic-lite.\n"
-        "Guidelines: Explain concepts clearly suitable for exam preparation. Use standard terminology but verify understanding."
+        "Target Audience: High school/Undergraduate students.\n"
+        "Tone: Academic but accessible, clear, and structured.\n"
+        "Guidelines: Use standard terminology but define difficult concepts. Focus on key principles and logic."
     ),
-
-    # advanced -> 대학교 이상 수준 (기본값)
     "advanced": (
-        "Target Audience: University students and Adults.\n"
-        "Tone: Professional, academic, and detailed.\n"
-        "Guidelines: Treat the user as an educated adult. Provide deep insights, theoretical background, and comprehensive answers."
+        "Target Audience: Experts, Graduate students, or Professionals.\n"
+        "Tone: Professional, profound, and highly technical.\n"
+        "Guidelines: Provide deep insights, theoretical background, and mathematical proofs if necessary. Assume the user has strong background knowledge."
     ),
 }
 
@@ -213,12 +209,29 @@ def generate_edu_answer_with_llm(
     task_input: Dict[str, Any],
     user_message: str,
     trace_id: Optional[str] = None,
-    history: Optional[List[Dict[str, Any]]] = None, # ✅ [변경] history 인자 추가
+    history: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     
     intent = ((task_input.get("intent") or "") if isinstance(task_input, dict) else "").strip()
     slots = (task_input.get("slots") or {}) if isinstance(task_input.get("slots"), dict) else {}
     
+    # ----------------------------------------------------
+    # 0. PDF RAG Retrieval Check
+    # ----------------------------------------------------
+    pdf_context = ""
+    if global_pdf_engine.has_data:
+        # 질문과 관련된 내용을 PDF에서 검색
+        retrieved_text = global_pdf_engine.search(user_message, top_k=3)
+        if retrieved_text:
+            pdf_context = (
+                f"\n[REFERENCE MATERIAL FROM PDF ({global_pdf_engine.filename})]\n"
+                f"{retrieved_text}\n"
+                "---------------------------------------------------\n"
+                "INSTRUCTION: Prioritize the information above to answer the user's question.\n"
+            )
+            if log_event and trace_id:
+                log_event(trace_id, "pdf_rag_hit", {"filename": global_pdf_engine.filename})
+
     # ----------------------------------------------------
     # 1. UI Navigation Detection & Search
     # ----------------------------------------------------
@@ -226,7 +239,6 @@ def generate_edu_answer_with_llm(
 
     if is_nav:
         try:
-            # 검색어 결정: NLU Slot 우선 사용 -> 없으면 정규식 추출 -> 불용어 정리
             slot_q = slots.get("menu_name_query", {}).get("value")
             raw_q = slot_q if slot_q else _extract_menu_candidate(user_message)
             final_q = _clean_query(raw_q)
@@ -248,7 +260,7 @@ def generate_edu_answer_with_llm(
                 log_event(trace_id, "edu_site_nav_rag_fail", {"err": str(e)[:400]})
 
     # ----------------------------------------------------
-    # 2. General LLM Generation (Fallback)
+    # 2. General LLM Generation (Universal Tutor)
     # ----------------------------------------------------
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -258,41 +270,41 @@ def generate_edu_answer_with_llm(
     meta = (task_input.get("meta") or {}) if isinstance(task_input.get("meta"), dict) else {}
     state = (task_input.get("state") or {}) if isinstance(task_input.get("state"), dict) else {}
 
-    # ✅ [변경] 레벨 감지 및 프롬프트 선택
-    # 1) Slot에서 확인
+    # 레벨 감지
     lvl_slot = slots.get("level")
     if isinstance(lvl_slot, dict):
         user_lvl = lvl_slot.get("value")
     else:
         user_lvl = lvl_slot
 
-    # 2) Slot 없으면 Meta에서 확인
     if not user_lvl:
         user_lvl = meta.get("user_level")
 
-    # 3) 기본값 fallback (advanced)
     level_key = str(user_lvl).lower() if user_lvl else "advanced"
     level_instruction = LEVEL_PROMPTS.get(level_key, LEVEL_PROMPTS["advanced"])
 
+    # 만능 튜터 시스템 프롬프트 (PDF Context 주입 포함)
     base_system = (
-        "You are an educational assistant for Korean language learning.\n"
-        "IMPORTANT:\n"
-        "- Do NOT invent facts.\n"
-        "- If the user asks for menu navigation and you couldn't find it, apologize and ask for the exact menu name.\n"
-        "- Output JSON ONLY matching the schema.\n"
-        "- In ui_hints, ALWAYS include keys: domain, intent, menu_name, breadcrumb, url.\n"
+        "You are a 'Universal AI Tutor' capable of teaching any subject (Math, Science, History, Languages, etc.).\n"
+        "Your goal is to help the user learn and understand concepts clearly.\n"
+        "\n"
+        "CORE INSTRUCTIONS:\n"
+        "1. **Subject Agnostic**: You can answer questions about Physics, Coding, Spanish, Korean History, etc.\n"
+        "2. **Factuality**: Do NOT invent facts. If you don't know, admit it.\n"
+        "3. **Format**: Use Markdown (bolding, lists) to make explanations easy to read.\n"
+        "4. **Navigation**: If the user explicitly asks for UI menu navigation, handle it. Otherwise, focus on teaching.\n"
+        "5. **UI Hints**: In ui_hints, ALWAYS include keys: domain, intent, menu_name, breadcrumb, url.\n"
+        "6. **Output**: Return JSON ONLY matching the schema.\n"
+        f"{pdf_context}"
     )
 
-    # ✅ [변경] 시스템 프롬프트에 레벨 지침 + 히스토리 주입
     system = f"{base_system}\n[TARGET AUDIENCE ADAPTATION]\n{level_instruction}\n"
     
-    # 히스토리 텍스트 변환
+    # 히스토리 전체 주입
     history_text = ""
     if history:
-        # 최근 5개만 텍스트로 변환 (토큰 절약)
-        recent_history = history[-30:]
         lines = []
-        for h in recent_history:
+        for h in history:
             role = h.get("role", "unknown")
             content = h.get("content", "")
             if content:
@@ -307,7 +319,7 @@ def generate_edu_answer_with_llm(
         "intent": intent,
         "slots": slots,
         "meta": meta,
-        "level_setting": level_key,  # 디버깅 정보
+        "level_setting": level_key,
         "state_summary": {
             "conversation_id": state.get("conversation_id"),
             "turn_index": state.get("turn_index"),
@@ -347,5 +359,8 @@ def generate_edu_answer_with_llm(
     for k in ("domain", "intent", "menu_name", "breadcrumb", "url"):
         if not isinstance(ui_hints.get(k), str):
             ui_hints[k] = str(ui_hints.get(k) or "")
+
+    # ✅ [NEW] RAG 사용 여부 플래그 추가
+    ui_hints["used_pdf_rag"] = bool(pdf_context)
 
     return {"text": text, "ui_hints": ui_hints}
