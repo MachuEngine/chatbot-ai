@@ -127,7 +127,13 @@ def chat(req: ChatRequest):
     t0 = time.perf_counter()
 
     user_message = (req.user_message or "")
-    client_session_id = getattr(req.meta, "client_session_id", None)
+
+    # ✅ [변경] Meta에서 Platform ID, User ID 추출 (없으면 기본값)
+    meta_obj = req.meta if isinstance(req.meta, dict) else (req.meta.model_dump() if hasattr(req.meta, "model_dump") else {})
+    
+    platform_id = str(meta_obj.get("platform_id") or "web").strip()
+    # 기존 client_session_id가 넘어오면 user_id로 사용 (하위 호환성)
+    user_id = str(meta_obj.get("user_id") or meta_obj.get("client_session_id") or "").strip()
 
     edu_payload = _merge_edu_payload_from_req_and_meta(req)
 
@@ -135,7 +141,8 @@ def chat(req: ChatRequest):
         trace_id,
         "request_in",
         {
-            "client_session_id": client_session_id,
+            "platform_id": platform_id,
+            "user_id": user_id,
             "mode": getattr(req.meta, "mode", None),
             "user_message_len": len(user_message),
             "user_message_preview": user_message[:200],
@@ -151,13 +158,14 @@ def chat(req: ChatRequest):
 
     try:
         stage = "state_loaded"
-        state = sessions.get(client_session_id, trace_id=trace_id)
+        # ✅ [변경] platform_id, user_id 기반 세션 로드
+        state = sessions.get(platform_id, user_id, trace_id=trace_id)
         
         # ✅ 사용자 메시지를 히스토리에 추가
         if "history" not in state:
             state["history"] = []
         state["history"].append({"role": "user", "content": user_message, "ts": time.time()})
-        # 길이 제한 (최근 30개 유지 - 이전 대화 기억력 강화)
+        # 길이 제한 (최근 30개 유지)
         if len(state["history"]) > 30:
             state["history"] = state["history"][-30:]
 
@@ -218,8 +226,7 @@ def chat(req: ChatRequest):
 
             if (nlu2.get("domain") == "education") and llm_task.get("type") == "edu_answer_generation":
                 
-                # ✅ [변경] Guard 제거 -> 모든 질문 허용
-                # ✅ [변경] History 전달 (Generation Context)
+                # History 전달
                 history_list = state.get("history", [])
                 
                 generated = generate_edu_answer_with_llm(
@@ -255,17 +262,26 @@ def chat(req: ChatRequest):
                 new_state["history"] = state.get("history", [])[:]
             
             new_state["history"].append({"role": "assistant", "content": reply_text, "ts": time.time()})
-            # 길이 제한 (최근 30개 유지)
             if len(new_state["history"]) > 30:
                 new_state["history"] = new_state["history"][-30:]
 
         stage = "state_saved"
-        sessions.set(client_session_id, new_state, trace_id=trace_id)
+        # ✅ [변경] platform_id, user_id 기반 세션 저장
+        sessions.set(platform_id, user_id, new_state, trace_id=trace_id)
+        
+        # ------------------------------------------------------------------
+        # [Placeholder] DB Logging (Hybrid Approach)
+        # 추후 RDBMS/NoSQL 도입 시 여기서 대화 로그를 영구 저장합니다.
+        # if DB_ENABLED:
+        #     db.save_chat_log(platform_id, user_id, user_message, reply_text)
+        # ------------------------------------------------------------------
+
         log_event(
             trace_id,
             "state_saved",
             {
-                "client_session_id": client_session_id,
+                "platform_id": platform_id,
+                "user_id": user_id,
                 "turn_index": new_state.get("turn_index") if isinstance(new_state, dict) else None,
             },
         )
@@ -325,6 +341,7 @@ def chat(req: ChatRequest):
             {
                 "stage": stage,
                 "duration_ms": duration_ms,
-                "client_session_id": client_session_id,
+                "platform_id": platform_id,
+                "user_id": user_id,
             },
         )

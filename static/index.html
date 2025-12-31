@@ -12,23 +12,22 @@
       /* Gemini Dark Palette */
       --bg: #131314;
       --surface: #1E1F20;
-      --surface-2: #2D2E30; /* Input fields, User bubbles */
+      --surface-2: #2D2E30;
       --line: #444746;
       
       --text-main: #E3E3E3;
       --text-sub: #C4C7C5;
       --text-muted: #8E918F;
 
-      --accent-gradient: linear-gradient(135deg, #4b90ff, #ff5546); /* Gemini Sparkle Vibe */
+      --accent-gradient: linear-gradient(135deg, #4b90ff, #ff5546);
       --accent-blue: #A8C7FA;
-      --accent-blue-dim: rgba(168, 199, 250, 0.1);
       
       --success: #6DD58C;
-      --error: #F2B8B5; /* Soft Red */
+      --error: #F2B8B5;
+      --warning: #FFD54F; /* New for Subject/Tag */
       
       --radius-l: 24px;
       --radius-m: 16px;
-      --radius-s: 8px;
 
       --shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
       
@@ -44,19 +43,18 @@
       background-color: var(--bg);
       color: var(--text-main);
       font-family: var(--font-body);
-      /* Subtle ambient glow */
       background-image: 
         radial-gradient(circle at 10% 10%, rgba(76, 141, 246, 0.05), transparent 40%),
         radial-gradient(circle at 90% 80%, rgba(217, 101, 112, 0.05), transparent 40%);
       min-height: 100vh;
     }
 
-    /* --- Layout --- */
+    /* Layout */
     .app-layout {
       max-width: 1600px;
       margin: 0 auto;
       display: grid;
-      grid-template-columns: 1fr 400px;
+      grid-template-columns: 1fr 420px;
       gap: 20px;
       padding: 20px;
       height: 100vh;
@@ -67,17 +65,16 @@
       .chat-panel { height: 80vh; }
     }
 
-    /* --- Typography --- */
+    /* Typography */
     h1, h2, h3, .title { font-family: var(--font-head); }
     
-    /* --- Header --- */
+    /* Header */
     header {
       grid-column: 1 / -1;
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 10px 5px;
-      border-bottom: 1px solid transparent;
     }
     .brand {
       font-size: 20px;
@@ -105,7 +102,7 @@
       font-family: var(--mono);
     }
 
-    /* --- Cards --- */
+    /* Cards */
     .card {
       background: var(--surface);
       border-radius: var(--radius-l);
@@ -115,7 +112,6 @@
       box-shadow: var(--shadow);
       border: 1px solid rgba(255,255,255,0.05);
     }
-
     .card-hd {
       padding: 16px 20px;
       display: flex;
@@ -129,10 +125,7 @@
       color: var(--text-main);
     }
 
-    /* --- Chat Area --- */
-    .chat-panel {
-      position: relative;
-    }
+    /* Chat Area */
     .msgs {
       flex: 1;
       overflow-y: auto;
@@ -142,16 +135,15 @@
       gap: 24px;
       scroll-behavior: smooth;
     }
-    
     .msg {
       max-width: 85%;
       line-height: 1.6;
       font-size: 15px;
       position: relative;
       word-break: break-word;
+      /* [FIX 1] 줄바꾸기 지원 */
+      white-space: pre-wrap; 
     }
-
-    /* User Bubble */
     .msg.user {
       align-self: flex-end;
       background-color: var(--surface-2);
@@ -159,22 +151,20 @@
       padding: 12px 18px;
       border-radius: 18px 18px 4px 18px;
     }
-
-    /* Bot Bubble */
     .msg.bot {
       align-self: flex-start;
-      padding: 0 10px 0 34px; /* Space for icon */
+      padding: 0 10px 0 34px;
       color: var(--text-main);
     }
     .msg.bot::before {
-      content: '✨'; /* Gemini Sparkle */
+      content: '✨';
       position: absolute;
       left: 0;
       top: 0;
       font-size: 18px;
     }
 
-    /* Typing Indicator (Thinking Animation) */
+    /* Typing Animation */
     .typing-indicator {
       display: inline-flex;
       align-items: center;
@@ -190,31 +180,31 @@
     }
     .typing-dot:nth-child(1) { animation-delay: -0.32s; }
     .typing-dot:nth-child(2) { animation-delay: -0.16s; }
-    
-    @keyframes typing {
-      0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
-      40% { transform: scale(1); opacity: 1; }
-    }
 
     .meta-info {
       font-size: 11px;
       color: var(--text-muted);
       margin-top: 6px;
       font-family: var(--mono);
-      opacity: 0.7;
+      opacity: 0.8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
     }
-
     .msg a {
       color: var(--accent-blue);
       text-decoration: none;
-      border-bottom: 1px solid transparent;
+      border-bottom: 1px solid transparent; 
       transition: .2s;
     }
-    .msg a:hover {
-      border-bottom-color: var(--accent-blue);
-    }
+    .msg a:hover { border-bottom-color: var(--accent-blue); }
+    
+    /* Markdown Styles for Bot Message */
+    .msg b, .msg strong { color: var(--success); font-weight: 700; }
+    .msg h3 { margin: 12px 0 4px 0; font-size: 1.1em; color: var(--accent-blue); }
 
-    /* --- Composer (Input Area) --- */
+    /* Composer */
     .composer {
       background: var(--surface);
       padding: 20px;
@@ -233,7 +223,6 @@
       background: #252628;
       border-color: #555;
     }
-    
     textarea {
       flex: 1;
       background: transparent;
@@ -248,9 +237,8 @@
       padding: 12px 0;
       line-height: 1.5;
     }
-    textarea::placeholder { color: var(--text-muted); }
 
-    /* --- Buttons --- */
+    /* Buttons */
     button {
       border: none;
       cursor: pointer;
@@ -276,49 +264,31 @@
     .btn-send:hover { opacity: 0.9; transform: scale(1.05); }
     .btn-send svg { width: 20px; height: 20px; fill: currentColor; }
 
-    .btn-text {
-      background: transparent;
-      color: var(--text-sub);
-      border: 1px solid var(--line);
-    }
-    .btn-text:hover {
-      background: var(--surface-2);
-      color: var(--text-main);
-    }
-    
-    .btn-chip {
-      background: rgba(168, 199, 250, 0.08);
-      color: var(--accent-blue);
-    }
-    .btn-chip:hover {
-      background: rgba(168, 199, 250, 0.15);
-    }
-
-    .btn-reset {
-      color: var(--error);
-      background: rgba(242, 184, 181, 0.05);
-    }
+    .btn-text { background: transparent; color: var(--text-sub); border: 1px solid var(--line); }
+    .btn-text:hover { background: var(--surface-2); color: var(--text-main); }
+    .btn-reset { color: var(--error); background: rgba(242, 184, 181, 0.05); }
     .btn-reset:hover { background: rgba(242, 184, 181, 0.1); }
+    .btn-chip { background: rgba(168, 199, 250, 0.08); color: var(--accent-blue); }
+    .btn-chip:hover { background: rgba(168, 199, 250, 0.15); }
 
-    /* --- Controls Panel (Compact Version) --- */
+    /* Controls */
     .controls-panel {
       padding: 12px;
       overflow-y: auto;
-      gap: 10px;
+      gap: 16px;
       display: flex;
       flex-direction: column;
     }
-    
     .section-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent-blue);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 4px;
-      margin-top: 8px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding-bottom: 4px;
     }
-    
     input, select {
       width: 100%;
       background: var(--surface-2);
@@ -328,17 +298,23 @@
       color: var(--text-main);
       font-family: var(--font-body);
       font-size: 12px;
-      height: 32px;
+      height: 36px;
       outline: none;
-      margin-bottom: 0;
+      margin-bottom: 2px;
     }
     input:focus, select:focus {
       border-color: var(--accent-blue);
       background: #252628;
     }
+    .help-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      padding-left: 2px;
+      line-height: 1.3;
+    }
 
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     
     .code-block {
       background: #000;
@@ -347,41 +323,34 @@
       font-family: var(--mono);
       font-size: 11px;
       color: var(--text-sub);
-      overflow-x: auto;
+      overflow: auto; 
       border: 1px solid var(--line);
-      max-height: 200px; 
+      min-height: 150px; 
+      max-height: 400px;
+      resize: vertical; 
       white-space: pre-wrap; 
+      margin-bottom: 8px;
     }
-
     .debug-header {
       font-size: 11px;
       font-weight: 700;
       margin-bottom: 6px;
-      display: block;
+      display: flex;
+      justify-content: space-between;
     }
-
-    /* Status Indicators */
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      display: inline-block;
-      margin-right: 6px;
-    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
     .status-dot.idle { background: var(--text-muted); }
     .status-dot.sending { background: var(--accent-blue); box-shadow: 0 0 8px var(--accent-blue); }
     .status-dot.error { background: var(--error); }
 
-    /* PDF Drop Zone (Compact) */
     .drop-zone {
       border: 2px dashed var(--line);
       border-radius: var(--radius-m);
-      padding: 12px;
+      padding: 16px;
       text-align: center;
       color: var(--text-sub);
       transition: .2s;
       background: rgba(255,255,255,0.02);
-      margin-bottom: 4px;
       cursor: pointer;
     }
     .drop-zone.dragover {
@@ -390,13 +359,10 @@
       color: var(--accent-blue);
     }
     .drop-text { font-size: 12px; margin-top: 4px; }
-    .drop-icon { font-size: 20px; }
 
-    /* Scrollbar */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #555; }
   </style>
 </head>
 
@@ -423,7 +389,7 @@
 
     <div class="msgs" id="msgs">
       <div class="msg bot" style="opacity:0.6;">
-        안녕하세요! 저는 만능 과외 선생님입니다. 무엇이든 물어보세요!<br>
+        안녕하세요! 학습 도우미 AI입니다. 설정을 확인하고 대화를 시작해보세요.<br>
         <span class="meta-info">System Init</span>
       </div>
     </div>
@@ -451,97 +417,159 @@
     <div class="card-hd">
       <span class="card-title">Configuration</span>
       <div style="display:flex; gap:6px;">
-        <button class="btn-text" id="btnPresetEdu" style="font-size:11px;">Reset Settings</button>
+        <button class="btn-text" id="btnPresetEdu" style="font-size:11px;">Reset Defaults</button>
       </div>
     </div>
 
     <div class="controls-panel">
       
-      <div id="pdfDropZone" class="drop-zone">
-        <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
-          <div class="drop-icon">📄</div>
-          <div class="drop-text" id="dropText">Drag PDF here for RAG</div>
+      <div>
+        <div id="pdfDropZone" class="drop-zone">
+          <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+            <div style="font-size:20px;">📄</div>
+            <div class="drop-text" id="dropText">PDF 파일을 드래그하여 RAG 학습</div>
+          </div>
+          <input type="file" id="pdfInput" accept=".pdf" style="display:none" />
         </div>
-        <input type="file" id="pdfInput" accept=".pdf" style="display:none" />
+        <div class="help-text" style="text-align:center;">업로드한 교재 내용을 바탕으로 답변합니다.</div>
       </div>
 
       <div>
-        <div class="section-label">Connection</div>
-        <input id="endpoint" value="http://localhost:8000/api/chat" placeholder="Endpoint URL" style="margin-bottom:6px;" />
+        <div class="section-label">Connection & Session</div>
         
-        <div class="grid-3">
-          <input id="clientSessionId" value="sess_web_1" placeholder="Session ID" />
-          <select id="mode">
-            <option value="edu" selected>Edu</option>
-          </select>
-          <input id="domain" value="education" placeholder="Domain" />
-        </div>
-      </div>
+        <input id="endpoint" value="http://localhost:8000/api/chat" placeholder="Endpoint URL" />
+        <div class="help-text">백엔드 API 주소입니다.</div>
+        
+        <input id="clientSessionId" placeholder="Session ID (UUID)" />
+        <div class="help-text">사용자 세션 ID (비워두면 자동 생성)</div>
 
-      <div>
-        <div class="section-label">Settings</div>
-        <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:8px;">
-          <select id="userLevel">
-              <option value="beginner">Beginner (초급)</option>
-              <option value="intermediate">Intermediate (중급)</option>
-              <option value="advanced" selected>Advanced (심화)</option>
-          </select>
-          <select id="deviceType">
-            <option value="web">Web</option>
-            <option value="mobile">Mobile</option>
-            <option value="kiosk">Kiosk</option>
-            <option value="speaker">Speaker</option>
-          </select>
-          <select id="inputType">
-            <option value="text">Text</option>
-            <option value="voice">Voice</option>
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <div class="section-label">Learner Profile</div>
         <div class="grid-2">
-          <input id="nativeLang" placeholder="Native Lang (e.g. en, vi)" />
-          <input id="targetExam" placeholder="Target Exam (e.g. TOPIK)" />
+            <div>
+              <select id="platformId">
+                <option value="web" selected>Web</option>
+              </select>
+              <div class="help-text">접속 플랫폼</div>
+            </div>
+            <div>
+              <select id="userId">
+                <option value="user_1" selected>user_1</option>
+              </select>
+              <div class="help-text">사용자 식별자</div>
+            </div>
         </div>
-        <div class="grid-2" style="margin-top:8px;">
-          <select id="userAgeGroup">
-            <option value="">Age Group (Default)</option>
-            <option value="child">Child</option>
-            <option value="teen">Teen</option>
-            <option value="adult">Adult</option>
-          </select>
-          <select id="subjectContext">
-            <option value="">Subject (None)</option>
-            <option value="korean">Korean</option>
-            <option value="english">English</option>
-            <option value="math">Math</option>
-            <option value="science">Science</option>
-            <option value="history">History</option>
-            <option value="coding">Coding</option>
-          </select>
+        
+        <div class="grid-2" style="margin-top:4px;">
+          <div>
+            <select id="mode">
+              <option value="Edu" selected>Edu</option>
+            </select>
+            <div class="help-text">대화 모드 (교육용 등)</div>
+          </div>
+          <div>
+            <select id="domain">
+              <option value="education" selected>education</option>
+            </select>
+            <div class="help-text">서비스 도메인</div>
+          </div>
         </div>
-        <input id="weakPoints" placeholder="Weak points (comma separated, e.g. grammar, verb)" style="margin-top:8px;" />
+      </div>
+
+      <div>
+        <div class="section-label">User Context (필수)</div>
+        
+        <select id="userLevel">
+            <option value="beginner">Beginner (초등학생 눈높이)</option>
+            <option value="intermediate" selected>Intermediate (중·고등학생)</option>
+            <option value="advanced">Advanced (대학생 이상)</option>
+        </select>
+        <div class="help-text">사용자의 지식 수준을 설정하여 답변 난이도를 조절합니다.</div>
+
+        <select id="subjectContext">
+          <option value="general">General (자유 대화)</option>
+          <option value="math">Mathematics (수학)</option>
+          <option value="english">English (영어)</option>
+          <option value="physics">Physics (물리학)</option>
+          <option value="quantum">Quantum Mechanics (양자역학)</option>
+          <option value="history">History (역사)</option>
+          <option value="coding">Coding (프로그래밍)</option>
+        </select>
+        <div class="help-text">현재 학습 중인 과목이나 주제를 선택하세요.</div>
+
+        <div class="grid-2">
+          <div>
+            <select id="deviceType">
+              <option value="web">Web</option>
+              <option value="mobile">Mobile</option>
+            </select>
+            <div class="help-text">접속 기기</div>
+          </div>
+          <div>
+            <select id="inputType">
+              <option value="text">Text</option>
+              <option value="voice">Voice</option>
+            </select>
+            <div class="help-text">입력 방식</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">Teacher Persona</div>
+        
+        <select id="toneStyle">
+          <option value="">Tone (Default/None)</option>
+          <option value="kind">Kind & Encouraging (친절)</option>
+          <option value="strict">Strict & Concise (엄격)</option>
+          <option value="socratic">Socratic (질문 유도형)</option>
+          <option value="humorous">Humorous (유머러스)</option>
+        </select>
+        <div class="help-text">AI 선생님의 말투나 성격을 설정합니다.</div>
+        
+        <div class="grid-2">
+           <div>
+             <select id="nativeLang">
+               <option value="">Native (Default)</option>
+               <option value="ko">Korean</option>
+               <option value="en">English</option>
+             </select>
+             <div class="help-text">사용자 모국어</div>
+           </div>
+           <div>
+             <select id="targetExam">
+               <option value="">Exam (None)</option>
+               <option value="O-PIC">O-PIC</option>
+               <option value="TOEIC">TOEIC</option>
+             </select>
+             <div class="help-text">목표 시험</div>
+           </div>
+        </div>
+        
+        <select id="weakPoints" style="margin-top:4px;">
+          <option value="">Weak points (None)</option>
+          <option value="Grammar">Grammar</option>
+          <option value="Vocabulary">Vocabulary</option>
+          <option value="Listening">Listening</option>
+        </select>
+        <div class="help-text">중점적으로 보완할 취약점을 선택하세요.</div>
       </div>
 
       <div style="flex:1; display:flex; flex-direction:column; min-height:0;">
         <div class="section-label">Debug Data</div>
-        <div style="overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:4px;">
+        <div style="overflow-y:auto; display:flex; flex-direction:column; gap:12px; padding-right:4px;">
           
           <div>
-            <span class="debug-header" style="color:var(--accent-blue);">📤 Sent</span>
-            <div class="code-block" id="reqJson" style="max-height:80px;">{}</div>
+            <span class="debug-header" style="color:var(--accent-blue);">📤 Sent (Meta + Message)</span>
+            <div class="code-block" id="reqJson">{}</div>
           </div>
 
           <div>
              <span class="debug-header" style="color:var(--success);">📥 Reply</span>
-             <div class="code-block" id="replyJson" style="max-height:120px;">{}</div>
+             <div class="code-block" id="replyJson">{}</div>
           </div>
 
           <div>
-             <span class="debug-header" style="color:var(--text-sub);">💾 State</span>
-             <div class="code-block" id="stateJson" style="max-height:120px;">{}</div>
+             <span class="debug-header" style="color:var(--text-sub);">💾 Internal State</span>
+             <div class="code-block" id="stateJson">{}</div>
           </div>
 
         </div>
@@ -559,25 +587,52 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const storeKey = "chatbot_tutor_config_v5"; // Config key updated
+  const storeKey = "chatbot_tutor_config_v10_fmt"; 
 
   function nowTime() {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
-  // URL Auto-Linker
-  function linkify(text) {
+  function uuidv4() {
+    return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+  }
+
+  function getOrInitSessionId() {
+    let inputVal = $("clientSessionId").value.trim();
+    if (inputVal) return inputVal; 
+    let sid = sessionStorage.getItem("client_session_id");
+    if (!sid) {
+      sid = uuidv4();
+      sessionStorage.setItem("client_session_id", sid);
+    }
+    $("clientSessionId").value = sid;
+    return sid;
+  }
+
+  // [FIX 2] Simple Text Formatter for Markdown (Bold, Headers, Links)
+  function formatMessage(text) {
     if (!text) return "";
+    
+    // 1. Headers (### Title) -> Bold & Big
+    let out = text.replace(/^### (.*$)/gim, '<div style="font-weight:700; font-size:1.1em; margin-top:12px; margin-bottom:4px; color:var(--accent-blue);">$1</div>');
+    
+    // 2. Bold (**text**) -> <strong color>
+    out = out.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+    // 3. Links
     const urlPattern = /(\b(https?|ftp):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/gim;
-    return text.replace(urlPattern, '<a href="$1" target="_blank">$1</a>');
+    out = out.replace(urlPattern, '<a href="$1" target="_blank">$1</a>');
+    
+    return out;
   }
 
   function addMsg(role, text, metaLine) {
     const el = document.createElement("div");
     el.className = "msg " + (role === "user" ? "user" : "bot");
+    el.innerHTML = formatMessage(text || ""); // Use Formatter
     
-    el.innerHTML = linkify(text || "");
-
     if (metaLine) {
       const meta = document.createElement("div");
       meta.className = "meta-info";
@@ -590,7 +645,6 @@
     }, 10);
   }
 
-  // Show Thinking Animation
   function showThinking() {
     const el = document.createElement("div");
     el.className = "msg bot";
@@ -617,7 +671,6 @@
   function setStatus(kind, text) {
     const dot = $("statusDot");
     const txt = $("statusText");
-    
     dot.className = "status-dot " + (kind || "idle");
     txt.textContent = text;
   }
@@ -633,26 +686,28 @@
       if (raw) extra = JSON.parse(raw);
     } catch (e) {}
 
-    // [NEW] Added profile fields to meta
     const meta = {
-      client_session_id: $("clientSessionId").value.trim(),
-      mode: $("mode").value.trim(),
+      client_session_id: getOrInitSessionId(),
+      
+      platform_id: $("platformId").value.trim().toLowerCase(),
+      mode: $("mode").value.trim().toLowerCase(), 
+      device_type: $("deviceType").value.trim().toLowerCase(),
+      input_type: $("inputType").value.trim().toLowerCase(),
+      
+      user_id: $("userId").value.trim(),
       domain: $("domain").value.trim(),
       locale: $("locale").value.trim(),
       timezone: $("timezone").value.trim(),
-      device_type: $("deviceType").value.trim(),
-      input_type: $("inputType").value.trim(),
-      user_level: $("userLevel").value.trim(),
       
+      user_level: $("userLevel").value.trim(),
       native_language: $("nativeLang").value.trim(),
       target_exam: $("targetExam").value.trim(),
-      user_age_group: $("userAgeGroup").value.trim(),
       subject: $("subjectContext").value.trim(),
+      tone_style: $("toneStyle").value.trim(),
       
       ...extra,
     };
     
-    // Process weak_points (comma separated string -> list)
     const wpRaw = $("weakPoints").value.trim();
     if (wpRaw) {
       meta.weak_points = wpRaw.split(",").map(s => s.trim()).filter(s => s);
@@ -702,7 +757,8 @@
       removeThinking();
 
       if (!res.ok) {
-        addMsg("bot", `Error ${res.status}: ` + (json.detail || "Unknown error"), `${dt}ms`);
+        const errDetail = json.detail ? JSON.stringify(json.detail) : "Unknown error";
+        addMsg("bot", `Error ${res.status}: ${errDetail}`, `${dt}ms`);
         setStatus("error", "Error");
         setJson($("replyJson"), json);
         return;
@@ -711,21 +767,20 @@
       const reply = json?.reply || {};
       const state = json?.state || {};
       const text = reply?.text ?? JSON.stringify(reply, null, 2);
-      
       const intent = reply?.ui_hints?.intent || state?.active_intent || "-";
       
-      let debugInfo = `${dt}ms • ${intent}`;
-      if (meta.mode === 'edu' && meta.user_level) {
-        debugInfo += ` • <span style='color:var(--accent-blue)'>${meta.user_level}</span>`;
-      }
+      // [FIX 3] Colored Tag construction
+      let debugInfo = `<span style="color:var(--text-muted)">${dt}ms</span>`;
+      debugInfo += ` • <span>${intent}</span>`;
       
-      // [NEW] Display if subject or exam context is active
-      if (meta.subject) debugInfo += ` • ${meta.subject}`;
-      if (meta.target_exam) debugInfo += ` • Exam:${meta.target_exam}`;
-
-      // ✅ [Backend Flag Check] RAG 사용 여부 배지 표시
+      if (meta.mode && meta.user_level) {
+        debugInfo += ` • <span style="color:var(--accent-blue)">${meta.user_level}</span>`;
+      }
+      if (meta.subject) {
+        debugInfo += ` • <span style="color:var(--warning)">${meta.subject}</span>`;
+      }
       if (reply?.ui_hints?.used_pdf_rag) {
-        debugInfo += ` • <span style='color:var(--success); font-weight:bold;'>📄 PDF RAG</span>`;
+        debugInfo += ` • <span style="color:var(--success); font-weight:bold;">📄 PDF RAG</span>`;
       }
 
       addMsg("bot", text, debugInfo);
@@ -753,132 +808,95 @@
 
   function loadExamples() {
     const examples = [
-      { mode:"edu", domain:"education", msg:"양자역학이 뭐야?", subject:"science" },
+      { mode:"edu", domain:"education", msg:"양자역학이 뭐야?", subject:"quantum" },
       { mode:"edu", domain:"education", msg:"프랑스 혁명의 원인 알려줘", subject:"history" },
       { mode:"edu", domain:"education", msg:"Python 리스트 사용법", subject:"coding" },
-      { mode:"edu", domain:"education", msg:"사이트 메뉴 어디있어?" },
+      { mode:"edu", domain:"education", msg:"Hello, nice to meet you.", subject:"english" },
     ];
     const pick = examples[Math.floor(Math.random() * examples.length)];
-    $("mode").value = pick.mode;
+    $("mode").value = "Edu"; 
     $("domain").value = pick.domain;
     $("userMessage").value = pick.msg;
-    
-    // Example preset
     if(pick.subject) $("subjectContext").value = pick.subject;
-    
     presetEdu();
   }
 
   function presetEdu() {
-    $("mode").value = "edu";
+    $("mode").value = "Edu"; 
     $("domain").value = "education";
     $("deviceType").value = "web";
+    $("platformId").value = "web";
+    $("userId").value = "user_1";
+    $("userLevel").value = "intermediate";
+    $("toneStyle").value = "";
+    $("nativeLang").value = ""; 
+    $("targetExam").value = ""; 
+    getOrInitSessionId(); 
   }
 
-  // --- PDF Drop Zone Logic ---
   const dropZone = $("pdfDropZone");
   const fileInput = $("pdfInput");
   const dropText = $("dropText");
-
   dropZone.addEventListener("click", () => fileInput.click());
-
-  fileInput.addEventListener("change", (e) => {
-    if (e.target.files.length) uploadFile(e.target.files[0]);
-  });
-
-  dropZone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropZone.classList.add("dragover");
-  });
-
-  dropZone.addEventListener("dragleave", () => {
-    dropZone.classList.remove("dragover");
-  });
-
+  fileInput.addEventListener("change", (e) => { if (e.target.files.length) uploadFile(e.target.files[0]); });
+  dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
+  dropZone.addEventListener("dragleave", () => { dropZone.classList.remove("dragover"); });
   dropZone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    dropZone.classList.remove("dragover");
-    if (e.dataTransfer.files.length) {
-      uploadFile(e.dataTransfer.files[0]);
-    }
+    e.preventDefault(); dropZone.classList.remove("dragover");
+    if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
   });
-
   async function uploadFile(file) {
-    if (file.type !== "application/pdf") {
-      alert("PDF 파일만 가능합니다.");
-      return;
-    }
-
+    if (file.type !== "application/pdf") { alert("PDF 파일만 가능합니다."); return; }
     dropText.innerHTML = `Uploading <b>${file.name}</b>...`;
-    
-    const formData = new FormData();
-    formData.append("file", file);
-
+    const formData = new FormData(); formData.append("file", file);
     try {
-      const res = await fetch("/api/upload_pdf", {
-        method: "POST",
-        body: formData
-      });
+      const res = await fetch("/api/upload_pdf", { method: "POST", body: formData });
       const json = await res.json();
-      
       if (res.ok) {
         dropText.innerHTML = `✅ <b>${json.filename}</b> Loaded!<br>(${json.chunks} chunks)`;
         dropZone.style.borderColor = "var(--success)";
-      } else {
-        dropText.textContent = "Upload Failed";
-      }
-    } catch (e) {
-      console.error(e);
-      dropText.textContent = "Error: " + e.message;
-    }
+      } else { dropText.textContent = "Upload Failed"; }
+    } catch (e) { console.error(e); dropText.textContent = "Error: " + e.message; }
   }
 
-  // --- Persistence ---
   function saveState(patch) {
     const cur = loadState();
-    const next = { ...(cur || {}), ...(patch || {}) };
-    localStorage.setItem(storeKey, JSON.stringify(next));
+    localStorage.setItem(storeKey, JSON.stringify({ ...(cur || {}), ...(patch || {}) }));
   }
   function loadState() {
     try { return JSON.parse(localStorage.getItem(storeKey)); } catch(e){ return null; }
   }
   function restore() {
     const st = loadState();
-    if (!st) return;
-    if (st.lastBody?.meta) {
-      const m = st.lastBody.meta;
-      $("clientSessionId").value = m.client_session_id || "sess_web_1";
-      $("mode").value = m.mode || "edu";
-      if (m.user_level) $("userLevel").value = m.user_level;
-      if (m.device_type) $("deviceType").value = m.device_type;
-      
-      // Restore new fields
-      if (m.native_language) $("nativeLang").value = m.native_language;
-      if (m.target_exam) $("targetExam").value = m.target_exam;
-      if (m.user_age_group) $("userAgeGroup").value = m.user_age_group;
-      if (m.subject) $("subjectContext").value = m.subject;
-      if (m.weak_points) $("weakPoints").value = m.weak_points.join(", ");
+    if (!st || !st.lastBody?.meta) {
+      getOrInitSessionId(); 
+      return;
     }
+    const m = st.lastBody.meta;
+    if (m.platform_id) $("platformId").value = m.platform_id;
+    if (m.user_id) $("userId").value = m.user_id;
+    if (m.client_session_id) $("clientSessionId").value = m.client_session_id;
+    
+    $("mode").value = "Edu"; 
+    
+    if (m.user_level) $("userLevel").value = m.user_level;
+    if (m.device_type) $("deviceType").value = m.device_type;
+    if (m.native_language) $("nativeLang").value = m.native_language;
+    if (m.target_exam) $("targetExam").value = m.target_exam;
+    if (m.subject) $("subjectContext").value = m.subject;
+    if (m.tone_style) $("toneStyle").value = m.tone_style;
+    if (m.weak_points) $("weakPoints").value = m.weak_points.join(", ");
+    
+    getOrInitSessionId(); 
   }
 
-  // --- Events ---
   $("btnSend").addEventListener("click", send);
   $("btnClear").addEventListener("click", () => { clearAll(); saveState({}); });
   $("btnExamples").addEventListener("click", loadExamples);
   $("btnPresetEdu").addEventListener("click", presetEdu);
-  
   const ta = $("userMessage");
-  ta.addEventListener("input", function() {
-    this.style.height = 'auto';
-    this.style.height = (this.scrollHeight) + 'px';
-  });
-  ta.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  });
-
+  ta.addEventListener("input", function() { this.style.height = 'auto'; this.style.height = (this.scrollHeight) + 'px'; });
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
   restore();
 </script>
 </body>

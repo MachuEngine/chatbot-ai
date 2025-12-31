@@ -18,17 +18,24 @@ class SessionManager:
         self,
         redis_url: str = "redis://localhost:6379/0",
         key_prefix: str = "chatbot:session:",
-        ttl_seconds: int = 60 * 60 * 6,  # 6시간
+        ttl_seconds: int = 60 * 60 * 6,  # 6시간 (이 시간이 지나면 자동 삭제됨)
     ):
         self.r = redis.Redis.from_url(redis_url, decode_responses=True)
         self.key_prefix = key_prefix
         self.ttl_seconds = ttl_seconds
 
-    def _key(self, client_session_id: str) -> str:
-        sid = (client_session_id or "").strip()
-        if not sid:
-            sid = f"anon_{int(time.time()*1000)}"
-        return f"{self.key_prefix}{sid}"
+    def _key(self, platform_id: str, user_id: str) -> str:
+        """
+        Redis Key 구조 변경: chatbot:session:{platform_id}:{user_id}
+        """
+        pid = (platform_id or "default").strip()
+        uid = (user_id or "").strip()
+        
+        if not uid:
+            # 유저 ID가 없으면 익명 ID 생성
+            uid = f"anon_{int(time.time()*1000)}"
+            
+        return f"{self.key_prefix}{pid}:{uid}"
 
     def _new_state(self) -> Dict[str, Any]:
         now = time.time()
@@ -36,7 +43,7 @@ class SessionManager:
             "conversation_id": f"conv_{int(now*1000)}",
             "turn_index": 0,
             "history_summary": "",
-            "history": [],  # ✅ [추가] 대화 히스토리 리스트
+            "history": [],
             "current_domain": None,
             "active_intent": None,
             "slots": {},
@@ -45,8 +52,8 @@ class SessionManager:
             "updated_at": now,
         }
 
-    def get(self, client_session_id: str, trace_id: Optional[str] = None) -> Dict[str, Any]:
-        k = self._key(client_session_id)
+    def get(self, platform_id: str, user_id: str, trace_id: Optional[str] = None) -> Dict[str, Any]:
+        k = self._key(platform_id, user_id)
         raw = self.r.get(k)
 
         if not raw:
@@ -56,27 +63,30 @@ class SessionManager:
 
             if log_event and trace_id:
                 log_event(trace_id, "state_created", {
-                    "client_session_id": client_session_id,
+                    "platform_id": platform_id,
+                    "user_id": user_id,
+                    "redis_key": k,
                     "conversation_id": state.get("conversation_id"),
                     "ttl_seconds": self.ttl_seconds,
                 })
             return state
 
         state = json.loads(raw)
-        # TTL 갱신(슬라이딩 세션)
+        # TTL 갱신(슬라이딩 세션: 활동 시 수명 연장)
         self.r.expire(k, self.ttl_seconds)
 
         if log_event and trace_id:
             log_event(trace_id, "state_loaded", {
-                "client_session_id": client_session_id,
+                "platform_id": platform_id,
+                "user_id": user_id,
                 "conversation_id": state.get("conversation_id"),
                 "turn_index": state.get("turn_index"),
                 "ttl_seconds": self.ttl_seconds,
             })
         return state
 
-    def set(self, client_session_id: str, state: Dict[str, Any], trace_id: Optional[str] = None) -> None:
-        k = self._key(client_session_id)
+    def set(self, platform_id: str, user_id: str, state: Dict[str, Any], trace_id: Optional[str] = None) -> None:
+        k = self._key(platform_id, user_id)
         st = dict(state or {})
         st["updated_at"] = time.time()
         if "created_at" not in st:
@@ -92,18 +102,18 @@ class SessionManager:
 
         if log_event and trace_id:
             log_event(trace_id, "state_saved", {
-                "client_session_id": client_session_id,
+                "platform_id": platform_id,
+                "user_id": user_id,
                 "conversation_id": st.get("conversation_id"),
                 "turn_index": st.get("turn_index"),
                 "ttl_seconds": self.ttl_seconds,
             })
 
-    def add_history(self, client_session_id: str, role: str, message: str, limit: int = 30) -> None:
+    def add_history(self, platform_id: str, user_id: str, role: str, message: str, limit: int = 30) -> None:
         """
         대화 내용을 히스토리에 추가하고 저장합니다.
-        (주의: API 핸들러 내에서 state 객체를 직접 조작하는 경우 이 메서드 대신 state['history'].append를 사용하는 것이 동기화에 유리할 수 있습니다.)
         """
-        state = self.get(client_session_id)
+        state = self.get(platform_id, user_id)
         history = state.get("history", [])
         
         history.append({
@@ -117,4 +127,4 @@ class SessionManager:
             history = history[-limit:]
             
         state["history"] = history
-        self.set(client_session_id, state)
+        self.set(platform_id, user_id, state)
