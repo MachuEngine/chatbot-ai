@@ -24,7 +24,7 @@
       
       --success: #6DD58C;
       --error: #F2B8B5;
-      --warning: #FFD54F; /* New for Subject/Tag */
+      --warning: #FFD54F;
       
       --radius-l: 24px;
       --radius-m: 16px;
@@ -141,8 +141,7 @@
       font-size: 15px;
       position: relative;
       word-break: break-word;
-      /* [FIX 1] 줄바꾸기 지원 */
-      white-space: pre-wrap; 
+      white-space: pre-wrap; /* 줄바꿈 지원 */
     }
     .msg.user {
       align-self: flex-end;
@@ -200,9 +199,9 @@
     }
     .msg a:hover { border-bottom-color: var(--accent-blue); }
     
-    /* Markdown Styles for Bot Message */
+    /* Markdown Styles */
     .msg b, .msg strong { color: var(--success); font-weight: 700; }
-    .msg h3 { margin: 12px 0 4px 0; font-size: 1.1em; color: var(--accent-blue); }
+    .msg h3, .msg h2, .msg h1 { margin: 12px 0 4px 0; font-size: 1.1em; color: var(--accent-blue); font-weight: 700; }
 
     /* Composer */
     .composer {
@@ -271,13 +270,14 @@
     .btn-chip { background: rgba(168, 199, 250, 0.08); color: var(--accent-blue); }
     .btn-chip:hover { background: rgba(168, 199, 250, 0.15); }
 
-    /* Controls */
+    /* Controls Panel */
     .controls-panel {
       padding: 12px;
-      overflow-y: auto;
+      overflow-y: auto; /* 전체 패널 스크롤 */
       gap: 16px;
       display: flex;
       flex-direction: column;
+      height: 100%; /* 부모 높이 채움 */
     }
     .section-label {
       font-size: 12px;
@@ -316,6 +316,12 @@
 
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     
+    /* Debug Data Area - Fixed visibility */
+    .debug-section {
+      margin-top: auto; /* 하단으로 밀기 */
+      padding-top: 10px;
+      border-top: 1px dashed var(--line);
+    }
     .code-block {
       background: #000;
       border-radius: 12px;
@@ -325,8 +331,8 @@
       color: var(--text-sub);
       overflow: auto; 
       border: 1px solid var(--line);
-      min-height: 150px; 
-      max-height: 400px;
+      min-height: 100px;  /* 최소 높이 보장 */
+      max-height: 300px;
       resize: vertical; 
       white-space: pre-wrap; 
       margin-bottom: 8px;
@@ -389,7 +395,7 @@
 
     <div class="msgs" id="msgs">
       <div class="msg bot" style="opacity:0.6;">
-        안녕하세요! 학습 도우미 AI입니다. 설정을 확인하고 대화를 시작해보세요.<br>
+        안녕하세요! 궁금한 점이 있으면 대화를 시작해보세요.<br>
         <span class="meta-info">System Init</span>
       </div>
     </div>
@@ -482,9 +488,17 @@
             <option value="intermediate" selected>Intermediate (중·고등학생)</option>
             <option value="advanced">Advanced (대학생 이상)</option>
         </select>
-        <div class="help-text">사용자의 지식 수준을 설정하여 답변 난이도를 조절합니다.</div>
+        <div class="help-text">사용자의 지식 수준(Level)을 설정합니다.</div>
 
-        <select id="subjectContext">
+        <select id="userAgeGroup" style="margin-top:4px;">
+            <option value="">Select Age Group...</option>
+            <option value="child">Child (어린이)</option>
+            <option value="teen">Teen (청소년)</option>
+            <option value="adult" selected>Adult (성인)</option>
+        </select>
+        <div class="help-text">사용자의 연령대(Age)를 설정합니다.</div>
+
+        <select id="subjectContext" style="margin-top:4px;">
           <option value="general">General (자유 대화)</option>
           <option value="math">Mathematics (수학)</option>
           <option value="english">English (영어)</option>
@@ -553,12 +567,12 @@
         <div class="help-text">중점적으로 보완할 취약점을 선택하세요.</div>
       </div>
 
-      <div style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <div class="debug-section">
         <div class="section-label">Debug Data</div>
-        <div style="overflow-y:auto; display:flex; flex-direction:column; gap:12px; padding-right:4px;">
+        <div style="display:flex; flex-direction:column; gap:12px;">
           
           <div>
-            <span class="debug-header" style="color:var(--accent-blue);">📤 Sent (Meta + Message)</span>
+            <span class="debug-header" style="color:var(--accent-blue);">📤 Sent</span>
             <div class="code-block" id="reqJson">{}</div>
           </div>
 
@@ -568,7 +582,7 @@
           </div>
 
           <div>
-             <span class="debug-header" style="color:var(--text-sub);">💾 Internal State</span>
+             <span class="debug-header" style="color:var(--text-sub);">💾 State</span>
              <div class="code-block" id="stateJson">{}</div>
           </div>
 
@@ -587,7 +601,7 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const storeKey = "chatbot_tutor_config_v10_fmt"; 
+  const storeKey = "chatbot_tutor_config_v12_age"; 
 
   function nowTime() {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -611,28 +625,20 @@
     return sid;
   }
 
-  // [FIX 2] Simple Text Formatter for Markdown (Bold, Headers, Links)
+  // Simple Markdown Formatter
   function formatMessage(text) {
     if (!text) return "";
-    
-    // 1. Headers (### Title) -> Bold & Big
     let out = text.replace(/^### (.*$)/gim, '<div style="font-weight:700; font-size:1.1em; margin-top:12px; margin-bottom:4px; color:var(--accent-blue);">$1</div>');
-    
-    // 2. Bold (**text**) -> <strong color>
     out = out.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-
-    // 3. Links
     const urlPattern = /(\b(https?|ftp):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/gim;
     out = out.replace(urlPattern, '<a href="$1" target="_blank">$1</a>');
-    
     return out;
   }
 
   function addMsg(role, text, metaLine) {
     const el = document.createElement("div");
     el.className = "msg " + (role === "user" ? "user" : "bot");
-    el.innerHTML = formatMessage(text || ""); // Use Formatter
-    
+    el.innerHTML = formatMessage(text || "");
     if (metaLine) {
       const meta = document.createElement("div");
       meta.className = "meta-info";
@@ -700,6 +706,9 @@
       timezone: $("timezone").value.trim(),
       
       user_level: $("userLevel").value.trim(),
+      // ✅ [추가] Age Group
+      user_age_group: $("userAgeGroup").value.trim(),
+
       native_language: $("nativeLang").value.trim(),
       target_exam: $("targetExam").value.trim(),
       subject: $("subjectContext").value.trim(),
@@ -769,12 +778,12 @@
       const text = reply?.text ?? JSON.stringify(reply, null, 2);
       const intent = reply?.ui_hints?.intent || state?.active_intent || "-";
       
-      // [FIX 3] Colored Tag construction
       let debugInfo = `<span style="color:var(--text-muted)">${dt}ms</span>`;
       debugInfo += ` • <span>${intent}</span>`;
-      
-      if (meta.mode && meta.user_level) {
-        debugInfo += ` • <span style="color:var(--accent-blue)">${meta.user_level}</span>`;
+      if (meta.mode) {
+        if(meta.user_level) debugInfo += ` • <span style="color:var(--accent-blue)">${meta.user_level}</span>`;
+        // ✅ [추가] Age Group 표시
+        if(meta.user_age_group) debugInfo += ` • <span style="color:var(--accent-blue)">${meta.user_age_group}</span>`;
       }
       if (meta.subject) {
         debugInfo += ` • <span style="color:var(--warning)">${meta.subject}</span>`;
@@ -828,6 +837,7 @@
     $("platformId").value = "web";
     $("userId").value = "user_1";
     $("userLevel").value = "intermediate";
+    $("userAgeGroup").value = "adult"; // ✅ 기본값 설정
     $("toneStyle").value = "";
     $("nativeLang").value = ""; 
     $("targetExam").value = ""; 
@@ -880,6 +890,7 @@
     $("mode").value = "Edu"; 
     
     if (m.user_level) $("userLevel").value = m.user_level;
+    if (m.user_age_group) $("userAgeGroup").value = m.user_age_group; // ✅ 복구
     if (m.device_type) $("deviceType").value = m.device_type;
     if (m.native_language) $("nativeLang").value = m.native_language;
     if (m.target_exam) $("targetExam").value = m.target_exam;
