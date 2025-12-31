@@ -9,7 +9,9 @@ EDUCATION_SCHEMA = {
             "required_slots": ["topic"],
             "optional_slots": [
                 "question", "request_type",  # definition, usage, example, difference
-                "level", "subject", "style", "language", "include_examples"
+                "level", "subject", "style", "language", "include_examples",
+                # [NEW] Personalized & Context slots
+                "native_language", "target_exam", "device_type"
             ]
         },
 
@@ -20,7 +22,8 @@ EDUCATION_SCHEMA = {
             "optional_slots": [
                 "question", "evaluation_type", # grading, correction, feedback
                 "rubric", "target_improvements",
-                "level", "subject", "tone"
+                "level", "subject", "tone",
+                "native_language"
             ]
         },
 
@@ -37,7 +40,10 @@ EDUCATION_SCHEMA = {
         # 4) 연습문제 생성
         "create_practice": {
             "required_slots": ["topic"],
-            "optional_slots": ["level", "subject", "num_questions", "question_type", "difficulty", "include_answers"]
+            "optional_slots": [
+                "level", "subject", "num_questions", "question_type", "difficulty", "include_answers",
+                "target_exam"
+            ]
         },
 
         # 5) UI/기능 네비게이션 (RAG 전용)
@@ -78,10 +84,27 @@ EDUCATION_SCHEMA = {
         },
 
         # --- Context / Personalization (Sticky Candidates) ---
-        "subject": {"type": "enum", "values": ["korean", "english", "math", "social", "science", "other"]},
+        "subject": {
+            "type": "enum", 
+            "values": ["korean", "english", "math", "science", "social", "history", "coding", "other"]
+        },
         "level": {"type": "enum", "values": ["beginner", "intermediate", "advanced"]},
         "language": {"type": "enum", "values": ["ko", "en", "other"]},
         
+        # [NEW] Learner Profile & Context Slots
+        "native_language": {"type": "string", "max_len": 10}, # e.g., 'en', 'vi', 'ja'
+        "target_exam": {"type": "string", "max_len": 50},     # e.g., 'TOPIK', 'SAT', 'IELTS'
+        "user_age_group": {"type": "enum", "values": ["child", "teen", "adult"]},
+        "weak_points": {
+            "type": "array",
+            "max_items": 10,
+            "items": {"type": "string"}
+        },
+        
+        # [NEW] System Environment Slots
+        "device_type": {"type": "enum", "values": ["mobile", "web", "kiosk", "speaker"]},
+        "output_format": {"type": "enum", "values": ["markdown", "text", "speech"]},
+
         # --- Style & Preference ---
         "style": {"type": "enum", "values": ["teacher", "friendly", "exam", "socratic", "formal"]},
         "tone": {"type": "enum", "values": ["strict", "warm", "neutral", "encouraging"]},

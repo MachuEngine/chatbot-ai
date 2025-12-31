@@ -489,12 +489,40 @@
           <select id="deviceType">
             <option value="web">Web</option>
             <option value="mobile">Mobile</option>
+            <option value="kiosk">Kiosk</option>
+            <option value="speaker">Speaker</option>
           </select>
           <select id="inputType">
             <option value="text">Text</option>
             <option value="voice">Voice</option>
           </select>
         </div>
+      </div>
+
+      <div>
+        <div class="section-label">Learner Profile</div>
+        <div class="grid-2">
+          <input id="nativeLang" placeholder="Native Lang (e.g. en, vi)" />
+          <input id="targetExam" placeholder="Target Exam (e.g. TOPIK)" />
+        </div>
+        <div class="grid-2" style="margin-top:8px;">
+          <select id="userAgeGroup">
+            <option value="">Age Group (Default)</option>
+            <option value="child">Child</option>
+            <option value="teen">Teen</option>
+            <option value="adult">Adult</option>
+          </select>
+          <select id="subjectContext">
+            <option value="">Subject (None)</option>
+            <option value="korean">Korean</option>
+            <option value="english">English</option>
+            <option value="math">Math</option>
+            <option value="science">Science</option>
+            <option value="history">History</option>
+            <option value="coding">Coding</option>
+          </select>
+        </div>
+        <input id="weakPoints" placeholder="Weak points (comma separated, e.g. grammar, verb)" style="margin-top:8px;" />
       </div>
 
       <div style="flex:1; display:flex; flex-direction:column; min-height:0;">
@@ -531,7 +559,7 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const storeKey = "chatbot_tutor_config_v4"; // Config key updated
+  const storeKey = "chatbot_tutor_config_v5"; // Config key updated
 
   function nowTime() {
     return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -605,6 +633,7 @@
       if (raw) extra = JSON.parse(raw);
     } catch (e) {}
 
+    // [NEW] Added profile fields to meta
     const meta = {
       client_session_id: $("clientSessionId").value.trim(),
       mode: $("mode").value.trim(),
@@ -614,9 +643,21 @@
       device_type: $("deviceType").value.trim(),
       input_type: $("inputType").value.trim(),
       user_level: $("userLevel").value.trim(),
+      
+      native_language: $("nativeLang").value.trim(),
+      target_exam: $("targetExam").value.trim(),
+      user_age_group: $("userAgeGroup").value.trim(),
+      subject: $("subjectContext").value.trim(),
+      
       ...extra,
     };
     
+    // Process weak_points (comma separated string -> list)
+    const wpRaw = $("weakPoints").value.trim();
+    if (wpRaw) {
+      meta.weak_points = wpRaw.split(",").map(s => s.trim()).filter(s => s);
+    }
+
     meta.site_nav_db_path = $("siteNavDbPath").value.trim() || "data/site_nav.sqlite3";
 
     Object.keys(meta).forEach(k => {
@@ -677,6 +718,10 @@
       if (meta.mode === 'edu' && meta.user_level) {
         debugInfo += ` • <span style='color:var(--accent-blue)'>${meta.user_level}</span>`;
       }
+      
+      // [NEW] Display if subject or exam context is active
+      if (meta.subject) debugInfo += ` • ${meta.subject}`;
+      if (meta.target_exam) debugInfo += ` • Exam:${meta.target_exam}`;
 
       // ✅ [Backend Flag Check] RAG 사용 여부 배지 표시
       if (reply?.ui_hints?.used_pdf_rag) {
@@ -708,15 +753,18 @@
 
   function loadExamples() {
     const examples = [
-      { mode:"edu", domain:"education", msg:"양자역학이 뭐야?" },
-      { mode:"edu", domain:"education", msg:"프랑스 혁명의 원인 알려줘" },
-      { mode:"edu", domain:"education", msg:"Python 리스트 사용법" },
+      { mode:"edu", domain:"education", msg:"양자역학이 뭐야?", subject:"science" },
+      { mode:"edu", domain:"education", msg:"프랑스 혁명의 원인 알려줘", subject:"history" },
+      { mode:"edu", domain:"education", msg:"Python 리스트 사용법", subject:"coding" },
       { mode:"edu", domain:"education", msg:"사이트 메뉴 어디있어?" },
     ];
     const pick = examples[Math.floor(Math.random() * examples.length)];
     $("mode").value = pick.mode;
     $("domain").value = pick.domain;
     $("userMessage").value = pick.msg;
+    
+    // Example preset
+    if(pick.subject) $("subjectContext").value = pick.subject;
     
     presetEdu();
   }
@@ -802,6 +850,14 @@
       $("clientSessionId").value = m.client_session_id || "sess_web_1";
       $("mode").value = m.mode || "edu";
       if (m.user_level) $("userLevel").value = m.user_level;
+      if (m.device_type) $("deviceType").value = m.device_type;
+      
+      // Restore new fields
+      if (m.native_language) $("nativeLang").value = m.native_language;
+      if (m.target_exam) $("targetExam").value = m.target_exam;
+      if (m.user_age_group) $("userAgeGroup").value = m.user_age_group;
+      if (m.subject) $("subjectContext").value = m.subject;
+      if (m.weak_points) $("weakPoints").value = m.weak_points.join(", ");
     }
   }
 
