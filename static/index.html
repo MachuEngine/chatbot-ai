@@ -1,440 +1,454 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Chatbot AI - Universal Console</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      /* Gemini Dark Palette */
-      --bg: #131314;
-      --surface: #1E1F20;
-      --surface-2: #2D2E30;
-      --line: #444746;
-      
-      --text-main: #E3E3E3;
-      --text-sub: #C4C7C5;
-      --text-muted: #8E918F;
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Chatbot AI - Vehicle Simulator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Palette */
+            --bg: #131314;
+            --surface: #1E1F20;
+            --surface-2: #2D2E30;
+            --line: #444746;
+            
+            --text-main: #E3E3E3;
+            --text-sub: #C4C7C5;
+            --text-muted: #8E918F;
 
-      --accent-gradient: linear-gradient(135deg, #4b90ff, #ff5546);
-      --accent-blue: #A8C7FA;
-      
-      --success: #6DD58C;
-      --error: #F2B8B5;
-      --warning: #FFD54F;
-      
-      --radius-l: 24px;
-      --radius-m: 16px;
+            --accent-gradient: linear-gradient(135deg, #4b90ff, #ff5546);
+            --accent-blue: #A8C7FA;
+            
+            --success: #6DD58C;
+            --error: #F2B8B5;
+            --warning: #FFD54F;
+            
+            --radius-l: 24px;
+            --radius-m: 16px;
 
-      --shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-      
-      --font-body: 'Roboto', -apple-system, sans-serif;
-      --font-head: 'Google Sans', 'Roboto', sans-serif;
-      --mono: 'Menlo', 'Consolas', monospace;
-    }
+            --shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            
+            --font-body: 'Roboto', -apple-system, sans-serif;
+            --font-head: 'Google Sans', 'Roboto', sans-serif;
+            --mono: 'Menlo', 'Consolas', monospace;
+        }
 
-    * { box-sizing: border-box; }
-    
-    body {
-      margin: 0;
-      background-color: var(--bg);
-      color: var(--text-main);
-      font-family: var(--font-body);
-      background-image: 
-        radial-gradient(circle at 10% 10%, rgba(76, 141, 246, 0.05), transparent 40%),
-        radial-gradient(circle at 90% 80%, rgba(217, 101, 112, 0.05), transparent 40%);
-      min-height: 100vh;
-    }
+        * { box-sizing: border-box; }
+        
+        body {
+            margin: 0;
+            background-color: var(--bg);
+            color: var(--text-main);
+            font-family: var(--font-body);
+            background-image: 
+                radial-gradient(circle at 10% 10%, rgba(76, 141, 246, 0.05), transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(217, 101, 112, 0.05), transparent 40%);
+            min-height: 100vh;
+        }
 
-    /* Layout */
-    .app-layout {
-      max-width: 1600px;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: 1fr 420px;
-      gap: 20px;
-      padding: 20px;
-      height: 100vh;
-    }
-    
-    @media (max-width: 1000px) {
-      .app-layout { grid-template-columns: 1fr; height: auto; }
-      .chat-panel { height: 80vh; }
-    }
+        /* Layout */
+        .app-layout {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            gap: 20px;
+            padding: 20px;
+            height: 100vh;
+        }
+        
+        @media (max-width: 1000px) {
+            .app-layout { grid-template-columns: 1fr; height: auto; }
+            .chat-panel { height: 80vh; }
+        }
 
-    /* Typography */
-    h1, h2, h3, .title { font-family: var(--font-head); }
-    
-    /* Header */
-    header {
-      grid-column: 1 / -1;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 5px;
-    }
-    .brand {
-      font-size: 20px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      color: var(--text-main);
-    }
-    .brand-icon {
-      background: var(--accent-gradient);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
-      font-weight: 700;
-      font-size: 22px; 
-      margin-right: 4px;
-    }
-    .pill-badge {
-      font-size: 11px;
-      background: var(--surface-2);
-      color: var(--text-sub);
-      padding: 4px 10px;
-      border-radius: 99px;
-      font-family: var(--mono);
-    }
+        /* Typography */
+        h1, h2, h3, .title { font-family: var(--font-head); }
+        
+        /* Header */
+        header {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 5px;
+        }
+        .brand {
+            font-size: 20px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-main);
+        }
+        .brand-icon {
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
+            font-size: 22px; 
+            margin-right: 4px;
+        }
+        .pill-badge {
+            font-size: 11px;
+            background: var(--surface-2);
+            color: var(--text-sub);
+            padding: 4px 10px;
+            border-radius: 99px;
+            font-family: var(--mono);
+        }
 
-    /* Cards */
-    .card {
-      background: var(--surface);
-      border-radius: var(--radius-l);
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      box-shadow: var(--shadow);
-      border: 1px solid rgba(255,255,255,0.05);
-    }
-    .card-hd {
-      padding: 16px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid rgba(255,255,255,0.05);
-    }
-    .card-title {
-      font-size: 16px;
-      font-weight: 500;
-      color: var(--text-main);
-    }
+        /* Cards */
+        .card {
+            background: var(--surface);
+            border-radius: var(--radius-l);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .card-hd {
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: var(--text-main);
+        }
 
-    /* Chat Area */
-    .msgs {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-      scroll-behavior: smooth;
-    }
-    .msg {
-      max-width: 85%;
-      line-height: 1.6;
-      font-size: 15px;
-      position: relative;
-      word-break: break-word;
-      white-space: pre-wrap;
-    }
-    .msg.user {
-      align-self: flex-end;
-      background-color: var(--surface-2);
-      color: var(--text-main);
-      padding: 12px 18px;
-      border-radius: 18px 18px 4px 18px;
-    }
-    .msg.bot {
-      align-self: flex-start;
-      padding: 0 10px 0 34px;
-      color: var(--text-main);
-    }
-    .msg.bot::before {
-      content: '✨';
-      position: absolute;
-      left: 0;
-      top: 0;
-      font-size: 18px;
-    }
+        /* Chat Area */
+        .msgs {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            scroll-behavior: smooth;
+        }
+        .msg {
+            max-width: 85%;
+            line-height: 1.6;
+            font-size: 15px;
+            position: relative;
+            word-break: break-word;
+            white-space: pre-wrap;
+        }
+        .msg.user {
+            align-self: flex-end;
+            background-color: var(--surface-2);
+            color: var(--text-main);
+            padding: 12px 18px;
+            border-radius: 18px 18px 4px 18px;
+        }
+        .msg.bot {
+            align-self: flex-start;
+            padding: 0 10px 0 34px;
+            color: var(--text-main);
+        }
+        .msg.bot::before {
+            content: '✨';
+            position: absolute;
+            left: 0;
+            top: 0;
+            font-size: 18px;
+        }
 
-    /* Typing Animation */
-    .typing-indicator {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 4px 0;
-    }
-    .typing-dot {
-      width: 6px;
-      height: 6px;
-      background-color: var(--text-sub);
-      border-radius: 50%;
-      animation: typing 1.4s infinite ease-in-out both;
-    }
-    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
-    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        /* Typing Animation */
+        .typing-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 0;
+        }
+        .typing-dot {
+            width: 6px;
+            height: 6px;
+            background-color: var(--text-sub);
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out both;
+        }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
 
-    .meta-info {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 6px;
-      font-family: var(--mono);
-      opacity: 0.8;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-    .msg a {
-      color: var(--accent-blue);
-      text-decoration: none;
-      border-bottom: 1px solid transparent; 
-      transition: .2s;
-    }
-    .msg a:hover { border-bottom-color: var(--accent-blue); }
-    
-    .msg b, .msg strong { color: var(--success); font-weight: 700; }
-    .msg h3, .msg h2, .msg h1 { margin: 12px 0 4px 0; font-size: 1.1em; color: var(--accent-blue); font-weight: 700; }
+        .meta-info {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 6px;
+            font-family: var(--mono);
+            opacity: 0.8;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .msg a {
+            color: var(--accent-blue);
+            text-decoration: none;
+            border-bottom: 1px solid transparent; 
+            transition: .2s;
+        }
+        .msg a:hover { border-bottom-color: var(--accent-blue); }
+        
+        .msg b, .msg strong { color: var(--success); font-weight: 700; }
+        .msg h3, .msg h2, .msg h1 { margin: 12px 0 4px 0; font-size: 1.1em; color: var(--accent-blue); font-weight: 700; }
 
-    /* Composer */
-    .composer {
-      background: var(--surface);
-      padding: 20px;
-      border-top: 1px solid rgba(255,255,255,0.05);
-    }
-    .input-wrapper {
-      background: var(--surface-2);
-      border-radius: 28px;
-      padding: 8px 8px 8px 20px;
-      display: flex;
-      align-items: flex-end;
-      border: 1px solid transparent;
-      transition: .2s;
-    }
-    .input-wrapper:focus-within {
-      background: #252628;
-      border-color: #555;
-    }
-    textarea {
-      flex: 1;
-      background: transparent;
-      border: none;
-      color: var(--text-main);
-      font-size: 15px;
-      font-family: var(--font-body);
-      resize: none;
-      outline: none;
-      min-height: 24px;
-      max-height: 120px;
-      padding: 12px 0;
-      line-height: 1.5;
-    }
+        /* Composer */
+        .composer {
+            background: var(--surface);
+            padding: 20px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        .input-wrapper {
+            background: var(--surface-2);
+            border-radius: 28px;
+            padding: 8px 8px 8px 20px;
+            display: flex;
+            align-items: flex-end;
+            border: 1px solid transparent;
+            transition: .2s;
+        }
+        .input-wrapper:focus-within {
+            background: #252628;
+            border-color: #555;
+        }
+        textarea {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-main);
+            font-size: 15px;
+            font-family: var(--font-body);
+            resize: none;
+            outline: none;
+            min-height: 24px;
+            max-height: 120px;
+            padding: 12px 0;
+            line-height: 1.5;
+        }
 
-    /* Buttons */
-    button {
-      border: none;
-      cursor: pointer;
-      font-family: var(--font-head);
-      font-size: 13px;
-      font-weight: 500;
-      padding: 8px 16px;
-      border-radius: 20px;
-      transition: .2s;
-    }
-    .btn-send {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: var(--text-main);
-      color: var(--bg);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-left: 10px;
-      padding: 0;
-    }
-    .btn-send:hover { opacity: 0.9; transform: scale(1.05); }
-    .btn-send svg { width: 20px; height: 20px; fill: currentColor; }
+        /* Buttons */
+        button {
+            border: none;
+            cursor: pointer;
+            font-family: var(--font-head);
+            font-size: 13px;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 20px;
+            transition: .2s;
+        }
+        .btn-send {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--text-main);
+            color: var(--bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: 10px;
+            padding: 0;
+        }
+        .btn-send:hover { opacity: 0.9; transform: scale(1.05); }
+        .btn-send svg { width: 20px; height: 20px; fill: currentColor; }
 
-    .btn-text { background: transparent; color: var(--text-sub); border: 1px solid var(--line); }
-    .btn-text:hover { background: var(--surface-2); color: var(--text-main); }
-    .btn-reset { color: var(--error); background: rgba(242, 184, 181, 0.05); }
-    .btn-reset:hover { background: rgba(242, 184, 181, 0.1); }
-    .btn-chip { background: rgba(168, 199, 250, 0.08); color: var(--accent-blue); }
-    .btn-chip:hover { background: rgba(168, 199, 250, 0.15); }
+        .btn-text { background: transparent; color: var(--text-sub); border: 1px solid var(--line); }
+        .btn-text:hover { background: var(--surface-2); color: var(--text-main); }
+        .btn-reset { color: var(--error); background: rgba(242, 184, 181, 0.05); }
+        .btn-reset:hover { background: rgba(242, 184, 181, 0.1); }
+        .btn-chip { background: rgba(168, 199, 250, 0.08); color: var(--accent-blue); }
+        .btn-chip:hover { background: rgba(168, 199, 250, 0.15); }
 
-    /* Controls Panel */
-    .controls-panel {
-      padding: 12px;
-      overflow-y: auto;
-      gap: 16px;
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-    .section-label {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--accent-blue);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 6px;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-      padding-bottom: 4px;
-    }
-    input, select {
-      width: 100%;
-      background: var(--surface-2);
-      border: 1px solid transparent;
-      border-radius: 6px;
-      padding: 6px 10px;
-      color: var(--text-main);
-      font-family: var(--font-body);
-      font-size: 12px;
-      height: 36px;
-      outline: none;
-      margin-bottom: 2px;
-    }
-    input:focus, select:focus {
-      border-color: var(--accent-blue);
-      background: #252628;
-    }
-    .help-text {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-bottom: 8px;
-      padding-left: 2px;
-      line-height: 1.3;
-    }
+        /* Controls Panel */
+        .controls-panel {
+            padding: 12px;
+            overflow-y: auto;
+            gap: 16px;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        .section-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-blue);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 4px;
+        }
+        input, select {
+            width: 100%;
+            background: var(--surface-2);
+            border: 1px solid transparent;
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: var(--text-main);
+            font-family: var(--font-body);
+            font-size: 12px;
+            height: 36px;
+            outline: none;
+            margin-bottom: 2px;
+        }
+        input:focus, select:focus {
+            border-color: var(--accent-blue);
+            background: #252628;
+        }
+        .help-text {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            padding-left: 2px;
+            line-height: 1.3;
+        }
 
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    
-    .debug-section {
-      margin-top: auto;
-      padding-top: 10px;
-      border-top: 1px dashed var(--line);
-    }
-    .code-block {
-      background: #000;
-      border-radius: 12px;
-      padding: 12px;
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--text-sub);
-      overflow: auto; 
-      border: 1px solid var(--line);
-      min-height: 100px;
-      max-height: 300px;
-      resize: vertical; 
-      white-space: pre-wrap; 
-      margin-bottom: 8px;
-    }
-    .debug-header {
-      font-size: 11px;
-      font-weight: 700;
-      margin-bottom: 6px;
-      display: flex;
-      justify-content: space-between;
-    }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-    .status-dot.idle { background: var(--text-muted); }
-    .status-dot.sending { background: var(--accent-blue); box-shadow: 0 0 8px var(--accent-blue); }
-    .status-dot.error { background: var(--error); }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        
+        .debug-section {
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px dashed var(--line);
+        }
+        .code-block {
+            background: #000;
+            border-radius: 12px;
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-sub);
+            overflow: auto; 
+            border: 1px solid var(--line);
+            min-height: 100px;
+            max-height: 300px;
+            resize: vertical; 
+            white-space: pre-wrap; 
+            margin-bottom: 8px;
+        }
+        .debug-header {
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .status-dot.idle { background: var(--text-muted); }
+        .status-dot.sending { background: var(--accent-blue); box-shadow: 0 0 8px var(--accent-blue); }
+        .status-dot.error { background: var(--error); }
 
-    .drop-zone {
-      border: 2px dashed var(--line);
-      border-radius: var(--radius-m);
-      padding: 16px;
-      text-align: center;
-      color: var(--text-sub);
-      transition: .2s;
-      background: rgba(255,255,255,0.02);
-      cursor: pointer;
-    }
-    .drop-zone.dragover {
-      border-color: var(--accent-blue);
-      background: rgba(168, 199, 250, 0.1);
-      color: var(--accent-blue);
-    }
-    .drop-text { font-size: 12px; margin-top: 4px; }
+        .drop-zone {
+            border: 2px dashed var(--line);
+            border-radius: var(--radius-m);
+            padding: 16px;
+            text-align: center;
+            color: var(--text-sub);
+            transition: .2s;
+            background: rgba(255,255,255,0.02);
+            cursor: pointer;
+        }
+        .drop-zone.dragover {
+            border-color: var(--accent-blue);
+            background: rgba(168, 199, 250, 0.1);
+            color: var(--accent-blue);
+        }
+        .drop-text { font-size: 12px; margin-top: 4px; }
 
-    /* Mode Toggles */
-    .mode-switch {
-      display: flex;
-      background: var(--surface-2);
-      border-radius: 8px;
-      padding: 4px;
-      margin-bottom: 12px;
-    }
-    .mode-switch label {
-      flex: 1;
-      text-align: center;
-      font-size: 12px;
-      font-weight: 500;
-      padding: 8px 0;
-      cursor: pointer;
-      border-radius: 6px;
-      color: var(--text-muted);
-      transition: .2s;
-    }
-    .mode-switch input[type="radio"] { display: none; }
-    .mode-switch input[type="radio"]:checked + label {
-      background: var(--accent-blue);
-      color: var(--bg);
-      font-weight: 700;
-    }
+        /* Mode Toggles */
+        .mode-switch {
+            display: flex;
+            background: var(--surface-2);
+            border-radius: 8px;
+            padding: 4px;
+            margin-bottom: 12px;
+        }
+        .mode-switch label {
+            flex: 1;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 500;
+            padding: 8px 0;
+            cursor: pointer;
+            border-radius: 6px;
+            color: var(--text-muted);
+            transition: .2s;
+        }
+        .mode-switch input[type="radio"] { display: none; }
+        .mode-switch input[type="radio"]:checked + label {
+            background: var(--accent-blue);
+            color: var(--bg);
+            font-weight: 700;
+        }
 
-    /* Toggle Switches for Status */
-    .toggle-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 6px;
-      background: rgba(255,255,255,0.03);
-      padding: 6px 10px;
-      border-radius: 6px;
-    }
-    .toggle-label { font-size: 12px; color: var(--text-main); }
+        /* Toggle Switches & Status Grid for Driving */
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .status-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            background: rgba(255,255,255,0.03);
+            padding: 6px 8px;
+            border-radius: 6px;
+        }
+        .status-cell label {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+        .status-cell select, .status-cell input {
+            height: 28px;
+            font-size: 11px;
+            margin: 0;
+            background: var(--surface);
+            border: 1px solid var(--line);
+        }
 
-    /* New Checkbox Grid Styles */
-    .checkbox-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-    .checkbox-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: var(--text-sub);
-      background: rgba(255,255,255,0.03);
-      padding: 6px 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    .checkbox-item:hover {
-      background: rgba(255,255,255,0.06);
-    }
-    .checkbox-item input[type="checkbox"] {
-      width: 14px;
-      height: 14px;
-      accent-color: var(--accent-blue);
-      margin: 0;
-    }
-    
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
-  </style>
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            color: var(--text-sub);
+            background: rgba(255,255,255,0.03);
+            padding: 6px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .checkbox-item:hover {
+            background: rgba(255,255,255,0.06);
+        }
+        .checkbox-item input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            accent-color: var(--accent-blue);
+            margin: 0;
+        }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+    </style>
 </head>
 
 <body>
@@ -517,7 +531,6 @@
       </div>
 
       <div id="eduControls">
-        
         <div id="pdfDropZone" class="drop-zone" style="margin-bottom:16px;">
           <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
             <div style="font-size:20px;">📄</div>
@@ -568,8 +581,9 @@
 
       <div id="drivingControls" style="display:none;">
         <div class="section-label">1. 지원 옵션 (Supported Features)</div>
-        <div class="help-text">체크 해제 시 "지원하지 않음" 응답 테스트</div>
+        <div class="help-text" style="color:var(--error);">* 체크 해제 시 "지원 안 함" 테스트</div>
         <div class="checkbox-grid">
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="hvac_main" checked> 메인 공조</label>
             <label class="checkbox-item"><input type="checkbox" name="feature" value="window" checked> 창문</label>
             <label class="checkbox-item"><input type="checkbox" name="feature" value="door_lock" checked> 도어락</label>
             <label class="checkbox-item"><input type="checkbox" name="feature" value="seat_heater_front" checked> 앞좌석 열선</label>
@@ -584,67 +598,87 @@
             <label class="checkbox-item"><input type="checkbox" name="feature" value="frunk"> 프렁크</label>
         </div>
 
-        <div class="section-label" style="margin-top:20px;">2. 현재 상태 (Status)</div>
-        <div class="help-text">'이미 처리됨(Conflict)' 상황 테스트용</div>
+        <div class="section-label" style="margin-top:20px;">2. 현재 상태 (Vehicle Status)</div>
+        <div class="status-grid">
+            <div class="status-cell">
+                <label>운전석 창문</label>
+                <select id="stWinDriver">
+                    <option value="closed" selected>Closed</option>
+                    <option value="open">Open</option>
+                </select>
+            </div>
+            <div class="status-cell">
+                <label>조수석 창문</label>
+                <select id="stWinPass">
+                    <option value="closed" selected>Closed</option>
+                    <option value="open">Open</option>
+                </select>
+            </div>
+            
+            <div class="status-cell" style="background:rgba(168, 199, 250, 0.1); grid-column: span 2; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div>
+                    <label style="color:var(--accent-blue);">🌡️ 공조 모드</label>
+                    <select id="stHvacMode">
+                        <option value="off" selected>OFF</option>
+                        <option value="auto">AUTO</option>
+                        <option value="cool">COOL (에어컨)</option>
+                        <option value="heat">HEAT (히터)</option>
+                        <option value="dry">DRY (제습)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="color:var(--accent-blue);">🎯 목표 온도</label>
+                    <input type="number" id="stTargetTemp" value="22" min="16" max="32" step="1">
+                </div>
+                <div style="grid-column: span 2;">
+                    <label style="color:var(--text-muted);">🌡️ 현재 온도 (센서)</label>
+                    <input type="number" id="stCurrentTemp" value="18" min="-20" max="50" step="1" style="background:#111; color:#888;">
+                </div>
+            </div>
 
-        <div class="toggle-row">
-          <span class="toggle-label">🪟 운전석 창문</span>
-          <select id="statWinDriver" style="width:100px; height:28px; margin:0;">
-            <option value="closed" selected>Closed</option>
-            <option value="open">Open</option>
-          </select>
-        </div>
-        <div class="toggle-row">
-          <span class="toggle-label">🪟 조수석 창문</span>
-          <select id="statWinPass" style="width:100px; height:28px; margin:0;">
-            <option value="closed" selected>Closed</option>
-            <option value="open">Open</option>
-          </select>
-        </div>
-
-        <div class="toggle-row" style="margin-top:8px;">
-          <span class="toggle-label">❄️ 공조 전원 (Main)</span>
-          <select id="statHvacPower" style="width:100px; height:28px; margin:0;">
-            <option value="off" selected>Off</option>
-            <option value="on">On</option>
-          </select>
-        </div>
-        <div class="toggle-row">
-          <span class="toggle-label">🔥 운전석 열선</span>
-          <select id="statSeatHeat" style="width:100px; height:28px; margin:0;">
-            <option value="off" selected>Off</option>
-            <option value="on">On</option>
-          </select>
-        </div>
-        <div class="toggle-row">
-          <span class="toggle-label">♨️ 핸들 열선</span>
-          <select id="statSteeringHeat" style="width:100px; height:28px; margin:0;">
-            <option value="off" selected>Off</option>
-            <option value="on">On</option>
-          </select>
-        </div>
-
-        <div class="toggle-row" style="margin-top:8px;">
-          <span class="toggle-label">🔒 도어 잠금</span>
-          <select id="statLock" style="width:100px; height:28px; margin:0;">
-            <option value="locked" selected>Locked</option>
-            <option value="unlocked">Unlocked</option>
-          </select>
-        </div>
-        <div class="toggle-row">
-          <span class="toggle-label">☀️ 선루프</span>
-          <select id="statSunroof" style="width:100px; height:28px; margin:0;">
-            <option value="closed" selected>Closed</option>
-            <option value="open">Open</option>
-            <option value="tilted">Tilted</option>
-          </select>
-        </div>
-        <div class="toggle-row">
-          <span class="toggle-label">🔋 충전 포트</span>
-          <select id="statChargePort" style="width:100px; height:28px; margin:0;">
-            <option value="closed" selected>Closed</option>
-            <option value="open">Open</option>
-          </select>
+            <div class="status-cell">
+                <label>운전석 열선</label>
+                <select id="stSeatHeat">
+                    <option value="off" selected>Off</option>
+                    <option value="on">On</option>
+                </select>
+            </div>
+            <div class="status-cell">
+                <label>핸들 열선</label>
+                <select id="stSteeringHeat">
+                    <option value="off" selected>Off</option>
+                    <option value="on">On</option>
+                </select>
+            </div>
+            <div class="status-cell">
+                <label>도어 잠금</label>
+                <select id="stLock">
+                    <option value="locked" selected>Locked</option>
+                    <option value="unlocked">Unlocked</option>
+                </select>
+            </div>
+            <div class="status-cell">
+                <label>선루프</label>
+                <select id="stSunroof">
+                    <option value="closed" selected>Closed</option>
+                    <option value="open">Open</option>
+                    <option value="tilted">Tilted</option>
+                </select>
+            </div>
+            <div class="status-cell">
+                <label>뒷좌석 열선(L)</label>
+                <select id="stHeaterRearL">
+                    <option value="off" selected>Off</option>
+                    <option value="on">On</option>
+                </select>
+            </div>
+            <div class="status-cell">
+                <label>충전 포트</label>
+                <select id="stChargePort">
+                    <option value="closed" selected>Closed</option>
+                    <option value="open">Open</option>
+                </select>
+            </div>
         </div>
       </div>
 
@@ -678,7 +712,7 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const storeKey = "chatbot_tutor_config_v14_driving"; 
+  const storeKey = "chatbot_tutor_config_v16_final"; 
 
   // --- Mode Switching Logic ---
   let currentMode = "education";
@@ -790,23 +824,34 @@
       meta.supported_features = features;
 
       // 2. Vehicle Status
+      const hvacMode = $("stHvacMode").value;
+      const hvacPower = (hvacMode === 'off') ? 'off' : 'on';
+
       meta.vehicle_status = {
-        window_driver: $("statWinDriver").value,
-        window_passenger: $("statWinPass").value,
-        hvac_power: $("statHvacPower").value,
-        seat_heater_driver: $("statSeatHeat").value,
-        steering_wheel_heat: $("statSteeringHeat").value,
-        door_lock: $("statLock").value,
-        sunroof: $("statSunroof").value,
-        charge_port: $("statChargePort").value,
+        window_driver: $("stWinDriver").value,
+        window_passenger: $("stWinPass").value,
         
-        // Default fallbacks for logical consistency
+        // HVAC
+        hvac_power: hvacPower,
+        hvac_mode: hvacMode,
+        target_temp: parseInt($("stTargetTemp").value) || 22,
+        current_temp: parseInt($("stCurrentTemp").value) || 18,
+
+        seat_heater_driver: $("stSeatHeat").value,
+        steering_wheel_heat: $("stSteeringHeat").value,
+        door_lock: $("stLock").value,
+        sunroof: $("stSunroof").value,
+        charge_port: $("stChargePort").value,
+        seat_heater_rear_left: $("stHeaterRearL").value,
+        seat_heater_rear_right: $("stHeaterRearL").value, // Sync for demo
+        
+        // Default fallbacks
         trunk: "closed",
         frunk: "closed",
         window_rear_left: "closed",
         window_rear_right: "closed",
-        seat_heater_rear_left: "off",
-        seat_heater_rear_right: "off"
+        wiper_front: "off",
+        light_head: "off"
       };
 
     } else {
@@ -880,19 +925,17 @@
       let debugInfo = `<span style="color:var(--text-muted)">${dt}ms</span>`;
       debugInfo += ` • <span>${intent}</span>`;
       
-      // 디버그 정보 표시
-      if (meta.mode === "edu") {
+      // 디버그 정보 표시 (Status Codes)
+      if (meta.mode === "driving") {
+        debugInfo += ` • <span style="color:var(--accent-blue)">🚗 Driving</span>`;
+        const st = reply.payload?.status;
+        if (st === "conflict") debugInfo += ` • <span style="color:var(--error)">Conflict</span>`;
+        else if (st === "unsupported") debugInfo += ` • <span style="color:var(--error)">Unsupported</span>`;
+        else if (st === "success") debugInfo += ` • <span style="color:var(--success)">Success</span>`;
+        else if (st === "general_chat") debugInfo += ` • <span style="color:#FFD54F">Chat</span>`;
+      } else {
         if(meta.user_level) debugInfo += ` • <span style="color:var(--accent-blue)">${meta.user_level}</span>`;
         if(meta.subject) debugInfo += ` • <span style="color:var(--warning)">${meta.subject}</span>`;
-      } else if (meta.mode === "driving") {
-        debugInfo += ` • <span style="color:var(--accent-blue)">🚗 Driving</span>`;
-        if (reply.payload?.status === "conflict") {
-          debugInfo += ` • <span style="color:var(--error)">Conflict</span>`;
-        } else if (reply.payload?.status === "unsupported") {
-          debugInfo += ` • <span style="color:var(--error)">Unsupported</span>`;
-        } else if (reply.payload?.status === "success") {
-          debugInfo += ` • <span style="color:var(--success)">Success</span>`;
-        }
       }
 
       addMsg("bot", text, debugInfo);
@@ -902,7 +945,7 @@
       setJson($("stateJson"), state);
       saveState({ lastResponse: json, mode: currentMode });
       
-      // Update UI Simulator if action was successful
+      // [Update UI from Command]
       if (meta.mode === "driving" && reply.command) {
           updateSimulatorFromCommand(reply.command);
       }
@@ -920,26 +963,60 @@
           const act = cmd.params.action;
           const loc = cmd.params.location_detail;
 
-          if (part === 'window' && act === 'open') {
-              $("statWinDriver").value = 'open';
-              $("statWinPass").value = 'open';
-          } else if (part === 'window' && act === 'close') {
-              $("statWinDriver").value = 'closed';
-              $("statWinPass").value = 'closed';
+          if (part === 'window') {
+              if (act === 'open') {
+                  if (loc === 'driver' || loc === 'all') $("stWinDriver").value = 'open';
+                  if (loc === 'passenger' || loc === 'all') $("stWinPass").value = 'open';
+              } else if (act === 'close') {
+                  if (loc === 'driver' || loc === 'all') $("stWinDriver").value = 'closed';
+                  if (loc === 'passenger' || loc === 'all') $("stWinPass").value = 'closed';
+              }
           }
-          if (part === 'seat_heater' && act === 'on') $("statSeatHeat").value = 'on';
-          if (part === 'seat_heater' && act === 'off') $("statSeatHeat").value = 'off';
-          if (part === 'steering_wheel' && act === 'on') $("statSteeringHeat").value = 'on';
-          if (part === 'steering_wheel' && act === 'off') $("statSteeringHeat").value = 'off';
-          if (part === 'door_lock' && act === 'lock') $("statLock").value = 'locked';
-          if (part === 'door_lock' && act === 'unlock') $("statLock").value = 'unlocked';
-          if (part === 'sunroof' && act === 'open') $("statSunroof").value = 'open';
-          if (part === 'sunroof' && act === 'close') $("statSunroof").value = 'closed';
+          else if (part === 'seat_heater') {
+              if (act === 'on') {
+                  if (loc === 'driver' || loc === 'all') $("stSeatHeat").value = 'on';
+                  if (loc === 'rear' || loc === 'all') $("stHeaterRearL").value = 'on';
+              } else if (act === 'off') {
+                  if (loc === 'driver' || loc === 'all') $("stSeatHeat").value = 'off';
+                  if (loc === 'rear' || loc === 'all') $("stHeaterRearL").value = 'off';
+              }
+          }
+          else if (part === 'steering_wheel' && act === 'on') $("stSteeringHeat").value = 'on';
+          else if (part === 'steering_wheel' && act === 'off') $("stSteeringHeat").value = 'off';
+          
+          else if (part === 'door_lock' && act === 'lock') $("stLock").value = 'locked';
+          else if (part === 'door_lock' && act === 'unlock') $("stLock").value = 'unlocked';
+          
+          else if (part === 'sunroof' && act === 'open') $("stSunroof").value = 'open';
+          else if (part === 'sunroof' && act === 'close') $("stSunroof").value = 'closed';
+          else if (part === 'sunroof' && act === 'tilt') $("stSunroof").value = 'tilted';
       }
       else if (cmd.type === 'hvac_control') {
           const act = cmd.params.action;
-          if (act === 'on') $("statHvacPower").value = 'on';
-          if (act === 'off') $("statHvacPower").value = 'off';
+          const mode = cmd.params.hvac_mode;
+          const temp = cmd.params.target_temp;
+
+          if (act === 'on') {
+              if (mode === 'heat') $("stHvacMode").value = 'heat';
+              else if (mode === 'cool') $("stHvacMode").value = 'cool';
+              else if (mode === 'auto') $("stHvacMode").value = 'auto';
+              else if (mode === 'dry') $("stHvacMode").value = 'dry';
+              else {
+                  if ($("stHvacMode").value === 'off') $("stHvacMode").value = 'auto';
+              }
+          } else if (act === 'off') {
+              $("stHvacMode").value = 'off';
+          }
+
+          if (temp) {
+              $("stTargetTemp").value = temp;
+          }
+      }
+      else if (cmd.type === 'navigation') {
+          const dest = cmd.params.destination;
+          const mapUrl = `https://map.naver.com/v5/search/${encodeURIComponent(dest)}`;
+          addMsg('bot', `🗺️ 내비게이션 실행: <b>${dest}</b>`, 'System Action');
+          window.open(mapUrl, '_blank');
       }
   }
 
@@ -963,9 +1040,12 @@
     } else {
       examples = [
         { msg:"창문 닫아줘" },
-        { msg:"엉덩이 따뜻하게 해줘" },
-        { msg:"뒷자리 열선 켜줘 (지원 안 함 테스트)" },
-        { msg:"핸들 열선 켜줘" }
+        { msg:"히터 켜줘 (온도 자동설정)" },
+        { msg:"온도 24도로 맞춰줘" },
+        { msg:"핸들 열선 켜줘" },
+        { msg:"뒷자리 통풍 시트 켜줘 (미지원 테스트)" },
+        { msg:"서울역으로 안내해줘" },
+        { msg:"너 이름이 뭐야? (잡담)" }
       ];
     }
     const pick = examples[Math.floor(Math.random() * examples.length)];
@@ -979,13 +1059,19 @@
       $("userAgeGroup").value = "adult";
       $("subjectContext").value = "general";
     } else {
-      // Driving 기본값 리셋
+      // Driving Reset
       document.querySelectorAll('input[name="feature"]').forEach(cb => cb.checked = true);
-      $("statWinDriver").value = "closed";
-      $("statWinPass").value = "closed";
-      $("statHvacPower").value = "off";
-      $("statSeatHeat").value = "off";
-      $("statLock").value = "locked";
+      document.querySelector('input[value="seat_heater_rear"]').checked = false; // Example: Default unsupported
+      
+      $("stWinDriver").value = "closed";
+      $("stWinPass").value = "closed";
+      $("stHvacMode").value = "off";
+      $("stTargetTemp").value = 22;
+      $("stCurrentTemp").value = 18;
+      $("stSeatHeat").value = "off";
+      $("stSteeringHeat").value = "off";
+      $("stLock").value = "locked";
+      $("stSunroof").value = "closed";
     }
   }
 

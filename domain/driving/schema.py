@@ -50,7 +50,8 @@ DRIVING_SCHEMA = {
         },
         
         # HVAC
-        "target_temp": {"type": "integer", "min": 16, "max": 30},
+        # [수정] 온도의 유효 범위를 명확히 제한 (차량용 표준 범위)
+        "target_temp": {"type": "integer", "min": 16, "max": 32},
         "seat_location": {"type": "enum", "values": ["driver", "passenger", "rear", "all"]},
         "fan_speed": {"type": "integer", "min": 1, "max": 5},
         "hvac_mode": {"type": "enum", "values": ["heat", "cool", "auto", "dry", "defog", "fresh_air", "recirculation"]},
