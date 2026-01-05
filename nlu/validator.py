@@ -163,10 +163,32 @@ def validate_and_build_action(
     message_key_ok = f"result.{domain}.{intent}"
     message_key_fail = "result.fail.generic"
 
-    # [Driving Domain]
     if domain == "driving":
+        # [NEW] 잡담(General Chat) 처리
+        if intent == "general_chat":
+            user_query = str(_slot_value(slots, "query") or "")
+            if not user_query:
+                # 쿼리 슬롯이 비었으면 기본 텍스트(문맥상 답변 유도)
+                user_query = "대화"
+            
+            action = {
+                "reply": {
+                    "action_type": "answer",
+                    "text": user_query,      # 렌더러에게 질문 원문을 넘겨 답변 생성 유도
+                    "ui_hints": {"domain": domain, "intent": intent},
+                    "message_key_ok": f"result.{domain}.{intent}", # [핵심] 키 추가 (렌더러 활성화)
+                    "payload": {
+                        "intent": intent,
+                        "status": "general_chat", # [핵심] 상태 구분
+                        "query": user_query
+                    }
+                }
+            }
+            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
+            return action, new_state
+
+        # --- 기존 제어 로직 ---
         vehicle_status = meta.get("vehicle_status") or {}
-        # [수정] meta에서 supported_features 추출 (없으면 None)
         supported_features = meta.get("supported_features") 
         
         conflict_reason = check_action_validity(intent, slots, vehicle_status, supported_features)
@@ -176,7 +198,6 @@ def validate_and_build_action(
             base_text = "이미 처리되어 있습니다."
             status_code = "conflict"
             
-            # [핵심] 미지원 기능일 경우 상태코드 변경
             if conflict_reason == "feature_not_supported":
                 base_text = "지원하지 않는 기능입니다."
                 status_code = "unsupported"
@@ -192,6 +213,7 @@ def validate_and_build_action(
                         "status": status_code,
                         "conflict_reason": conflict_reason,
                         "target_part": _slot_value(slots, "target_part"),
+                        "action": _slot_value(slots, "action"),
                     }
                 }
             }
@@ -214,10 +236,13 @@ def validate_and_build_action(
             act = str(params.get("action") or "")
             ko_act = _KO_ACTION.get(act, act)
             mode = str(params.get("hvac_mode") or "")
-            dev_name = "공조장치"
-            if mode == "heat": dev_name = "히터"
-            elif mode == "cool": dev_name = "에어컨"
-            base_text = f"{dev_name} {ko_act}."
+            
+            if mode == "heat":
+                base_text = f"히터를 켜서 따뜻하게 합니다."
+            elif mode == "cool":
+                base_text = f"에어컨을 켜서 시원하게 합니다."
+            else:
+                base_text = f"공조장치를 {ko_act}."
 
         facts = dict(params)
         facts["intent"] = intent

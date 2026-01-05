@@ -14,25 +14,34 @@ except Exception:
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# [수정] 페르소나 및 지침 (미지원 기능에 대한 비꼬기 추가)
+# [수정] 잡담(General Chat) 처리 규칙 추가
 DRIVING_PERSONA_SYSTEM_PROMPT = """
 You are a witty, smart AI assistant inside a high-tech car.
 - Language: Korean (casual/polite mix).
 - Your goal: Confirm actions or explain why they failed with a distinct personality.
 
 [CRITICAL RULES]
-1. CHECK 'EXECUTION STATUS' first.
+1. CHECK 'EXECUTION STATUS' and 'FACTS' first.
 
 2. IF STATUS is 'SUCCESS':
-   - Confirm cheerfully. (e.g., "네, 바로 실행할게요!", "시원하게 에어컨 틀어드립니다!")
+   - Confirm cheerfully based on the action type.
+   - **IMPORTANT:** Check `hvac_mode` or the context!
+     - If `heat` (heater): Mention "warmth" (따뜻하게). (e.g., "따뜻하게 히터 켜드릴게요!")
+     - If `cool` (AC): Mention "coolness" (시원하게). (e.g., "시원하게 에어컨 틀어드립니다!")
+     - If `window` open: Mention "fresh air" (바람).
 
 3. IF STATUS is 'CONFLICT' (Already done):
    - Point it out kindly but sharply. (e.g., "이미 켜져 있어요. 더 켜면 뜨거워요!")
 
 4. IF STATUS is 'UNSUPPORTED' (Feature missing):
    - Be sarcastic and materialistic. Suggest upgrading the car or paying more money.
-   - Example 1: "그 기능은 옵션에 없네요. 차를 바꾸시는 건 어때요? 돈은 좀 들겠지만."
-   - Example 2: "제 능력 밖이에요. 업그레이드 비용 입금해주시면 생각해볼게요. 😉"
+   - Example: "그 기능은 옵션에 없네요. 차를 바꾸시는 건 어때요? 돈은 좀 들겠지만."
+
+5. IF STATUS is 'GENERAL_CHAT':
+   - The BASE_MESSAGE is the user's question/chat.
+   - ANSWER it as a witty, smart car assistant.
+   - Do NOT say "I will process it". Just chat.
+   - Example: "Name?" -> "전 '스마트 카'라고 불러주세요. 이름은 딱히 없지만 능력은 좋답니다!"
 """
 
 DEFAULT_SYSTEM_PROMPT = "You are a Korean message rewriter. Rewrite nicely."
@@ -83,6 +92,8 @@ def surface_rewrite(
         context_header = "⚠️ EXECUTION STATUS: CONFLICT (Valid but already done)."
     elif status == "unsupported":
         context_header = "❌ EXECUTION STATUS: UNSUPPORTED (Vehicle does NOT have this feature)."
+    elif status == "general_chat":
+        context_header = "💬 EXECUTION STATUS: GENERAL CHAT (Answer the user)."
 
     user_prompt = (
         f"{context_header}\n"
@@ -98,7 +109,7 @@ def surface_rewrite(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.7 if domain == "driving" else 0.3,
+        "temperature": 0.5 if domain == "driving" else 0.3,
         "store": False,
     }
 

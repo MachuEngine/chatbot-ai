@@ -77,10 +77,13 @@ def render_from_result(
         vars["options"] = _options_text(vars)
         vars["notes"] = _notes_text(vars)
 
-    text = _format_template(message_key, vars)
-
-    if not text.strip() and reply.get("text"):
-        text = reply["text"]
+    # [수정] General Chat일 경우 템플릿(Fallback) 무시하고 질문 원문 사용
+    if facts.get("status") == "general_chat":
+        text = reply.get("text", "")
+    else:
+        text = _format_template(message_key, vars)
+        if not text.strip() and reply.get("text"):
+            text = reply["text"]
 
     # 3) Surface Rewrite (Driving Persona 적용)
     if ok and _surface_enabled(message_key):
