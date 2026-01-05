@@ -300,10 +300,24 @@ def _openai_nlu_two_stage(
         "candidates": candidates,
     }
 
-    # --- Stage 1: Router ---
+    # --- Stage 1: Router (Modified for Seat Heater distinction) ---
     system1 = (
         "You are an NLU router.\n"
-        "Analyze the user's message and context, then select the best (domain, intent) from the candidates.\n"
+        "Analyze the user's message, context, and `meta.vehicle_status`.\n"
+        "Select the best (domain, intent) from the candidates.\n"
+        "\n"
+        "[CRITICAL DRIVING RULES]\n"
+        "1. **HARDWARE vs HVAC:**\n"
+        "   - 'Seat Heater' (열선 시트, 엉따), 'Seat Ventilation' (통풍 시트), 'Steering Wheel Heater' (핸들 열선) -> MUST be `control_hardware`.\n"
+        "   - 'Air Conditioner' (에어컨), 'Heater' (히터, 공조), 'Temperature' (온도) -> MUST be `control_hvac`.\n"
+        "   - Warning: '열선' (Heat wire) refers to SEAT or STEERING, NOT air heater.\n"
+        "\n"
+        "2. **AMBIGUITY RESOLUTION:**\n"
+        "   - If the user expresses a condition (e.g., 'Cold') without a specific command:\n"
+        "     - IF 'cold' + windows 'open' -> `control_hardware` (Close windows).\n"
+        "     - IF 'cold' + windows 'closed' -> `control_hvac` (Turn on air heater).\n"
+        "   - If user asks 'Do you support X?', map it to the Intent that controls X.\n"
+        "\n"
         "Provide brief reasoning."
     )
     schema1 = build_domain_intent_schema(candidates)
@@ -335,9 +349,8 @@ def _openai_nlu_two_stage(
             "slots": {},
         }
 
-    # --- Stage 2: Slot Extraction ---
+    # --- Stage 2: Slot Extraction (Modified) ---
     
-    # [변경] 스키마의 Enum 정보를 프롬프트에 주입하여 LLM이 강제로 매핑하도록 함
     slot_defs = domain_schema.get("slots", {})
     target_slot_names = _intent_slot_names(domain_schema, intent)
     
@@ -345,7 +358,6 @@ def _openai_nlu_two_stage(
     for sname in target_slot_names:
         sdef = slot_defs.get(sname)
         if sdef and sdef.get("type") == "enum" and sdef.get("values"):
-            # Enum 값이 있으면 명시
             vals_str = ", ".join(sdef["values"])
             constraint_lines.append(f"- {sname}: MUST be one of [{vals_str}]")
     
@@ -374,15 +386,22 @@ def _openai_nlu_two_stage(
                 "4. PAYLOAD: Use edu_payload fields if present."
             ]
         }
+    elif domain == "driving":
+        # [수정] Driving Slot 추출 규칙 강화
+        slot_guidance = {
+            "RULES": [
+                "1. '열선'(Heat/Wire) maps to 'seat_heater' or 'steering_wheel' (target_part). NEVER map to HVAC.",
+                "2. If user asks 'Support X?', assume action='on' to trigger capability check.",
+                "3. Use 'Context Reasoning' to infer implied slots (e.g., 'Cold' -> action='close', part='window')."
+            ]
+        }
     
-    # Driving 등 기타 도메인은 스키마의 Enum Constraint로 충분히 제어됨
-
     system2 = (
         "You are an NLU slot extractor.\n"
         "Extract slots from the current 'user_message' based on the schema.\n"
         "\n"
         "GUIDELINES:\n"
-        "1. Focus ONLY on the current message. Do NOT copy slots from history.\n"
+        "1. Focus on the current message, but use `Context Reasoning` for implicit intent.\n"
         "2. For each slot, fill exactly one value field and leave others null.\n"
         "3. Follow the schema types strictly.\n"
         f"{constraints_prompt}"

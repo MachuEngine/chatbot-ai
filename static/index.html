@@ -401,6 +401,35 @@
       border-radius: 6px;
     }
     .toggle-label { font-size: 12px; color: var(--text-main); }
+
+    /* New Checkbox Grid Styles */
+    .checkbox-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-sub);
+      background: rgba(255,255,255,0.03);
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .checkbox-item:hover {
+      background: rgba(255,255,255,0.06);
+    }
+    .checkbox-item input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--accent-blue);
+      margin: 0;
+    }
     
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -538,8 +567,25 @@
       </div>
 
       <div id="drivingControls" style="display:none;">
-        <div class="section-label">Vehicle Status (Context)</div>
-        <div class="help-text">현재 차량 상태를 설정하여 '상황 인식' 테스트</div>
+        <div class="section-label">1. 지원 옵션 (Supported Features)</div>
+        <div class="help-text">체크 해제 시 "지원하지 않음" 응답 테스트</div>
+        <div class="checkbox-grid">
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="window" checked> 창문</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="door_lock" checked> 도어락</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="seat_heater_front" checked> 앞좌석 열선</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="seat_heater_rear"> 뒷좌석 열선</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="seat_ventilation_front"> 앞좌석 통풍</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="hvac_passenger"> 조수석 공조</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="hvac_rear"> 뒷좌석 공조</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="sunroof"> 선루프</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="steering_wheel_heater"> 핸들 열선</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="charge_port"> 충전 포트</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="trunk" checked> 트렁크</label>
+            <label class="checkbox-item"><input type="checkbox" name="feature" value="frunk"> 프렁크</label>
+        </div>
+
+        <div class="section-label" style="margin-top:20px;">2. 현재 상태 (Status)</div>
+        <div class="help-text">'이미 처리됨(Conflict)' 상황 테스트용</div>
 
         <div class="toggle-row">
           <span class="toggle-label">🪟 운전석 창문</span>
@@ -557,38 +603,48 @@
         </div>
 
         <div class="toggle-row" style="margin-top:8px;">
-          <span class="toggle-label">❄️ 공조 전원 (HVAC)</span>
+          <span class="toggle-label">❄️ 공조 전원 (Main)</span>
           <select id="statHvacPower" style="width:100px; height:28px; margin:0;">
             <option value="off" selected>Off</option>
             <option value="on">On</option>
           </select>
         </div>
         <div class="toggle-row">
-          <span class="toggle-label">🔥 운전석 시트 열선</span>
+          <span class="toggle-label">🔥 운전석 열선</span>
           <select id="statSeatHeat" style="width:100px; height:28px; margin:0;">
             <option value="off" selected>Off</option>
-            <option value="on">On (Lev 1-3)</option>
+            <option value="on">On</option>
+          </select>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">♨️ 핸들 열선</span>
+          <select id="statSteeringHeat" style="width:100px; height:28px; margin:0;">
+            <option value="off" selected>Off</option>
+            <option value="on">On</option>
           </select>
         </div>
 
         <div class="toggle-row" style="margin-top:8px;">
-          <span class="toggle-label">🚪 트렁크</span>
-          <select id="statTrunk" style="width:100px; height:28px; margin:0;">
-            <option value="closed" selected>Closed</option>
-            <option value="open">Open</option>
-          </select>
-        </div>
-        <div class="toggle-row">
           <span class="toggle-label">🔒 도어 잠금</span>
           <select id="statLock" style="width:100px; height:28px; margin:0;">
             <option value="locked" selected>Locked</option>
             <option value="unlocked">Unlocked</option>
           </select>
         </div>
-
-        <div class="help-text" style="margin-top:10px;">
-          * 이 상태값은 매 요청마다 `meta.vehicle_status`에 담겨 전송됩니다.
-          <br>* "창문 닫아줘" 했을 때 이미 Closed라면 AI가 반응합니다.
+        <div class="toggle-row">
+          <span class="toggle-label">☀️ 선루프</span>
+          <select id="statSunroof" style="width:100px; height:28px; margin:0;">
+            <option value="closed" selected>Closed</option>
+            <option value="open">Open</option>
+            <option value="tilted">Tilted</option>
+          </select>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">🔋 충전 포트</span>
+          <select id="statChargePort" style="width:100px; height:28px; margin:0;">
+            <option value="closed" selected>Closed</option>
+            <option value="open">Open</option>
+          </select>
         </div>
       </div>
 
@@ -622,7 +678,7 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const storeKey = "chatbot_tutor_config_v13_driving"; 
+  const storeKey = "chatbot_tutor_config_v14_driving"; 
 
   // --- Mode Switching Logic ---
   let currentMode = "education";
@@ -727,22 +783,36 @@
     if (currentMode === "driving") {
       // [Driving Mode]
       meta.mode = "driving";
-      meta.domain = "driving"; // 강제 지정
+      meta.domain = "driving"; 
       
-      // 차량 상태 수집
+      // 1. Supported Features (Checkboxes)
+      const features = Array.from(document.querySelectorAll('input[name="feature"]:checked')).map(cb => cb.value);
+      meta.supported_features = features;
+
+      // 2. Vehicle Status
       meta.vehicle_status = {
         window_driver: $("statWinDriver").value,
         window_passenger: $("statWinPass").value,
         hvac_power: $("statHvacPower").value,
         seat_heater_driver: $("statSeatHeat").value,
-        trunk: $("statTrunk").value,
-        door_lock: $("statLock").value
+        steering_wheel_heat: $("statSteeringHeat").value,
+        door_lock: $("statLock").value,
+        sunroof: $("statSunroof").value,
+        charge_port: $("statChargePort").value,
+        
+        // Default fallbacks for logical consistency
+        trunk: "closed",
+        frunk: "closed",
+        window_rear_left: "closed",
+        window_rear_right: "closed",
+        seat_heater_rear_left: "off",
+        seat_heater_rear_right: "off"
       };
 
     } else {
       // [Education Mode]
       meta.mode = "edu";
-      meta.domain = "education"; // Edu 모드 기본값
+      meta.domain = "education"; 
       
       meta.user_level = $("userLevel").value.trim();
       meta.user_age_group = $("userAgeGroup").value.trim();
@@ -810,17 +880,18 @@
       let debugInfo = `<span style="color:var(--text-muted)">${dt}ms</span>`;
       debugInfo += ` • <span>${intent}</span>`;
       
-      // 디버그 정보 표시 (모드별)
+      // 디버그 정보 표시
       if (meta.mode === "edu") {
         if(meta.user_level) debugInfo += ` • <span style="color:var(--accent-blue)">${meta.user_level}</span>`;
         if(meta.subject) debugInfo += ` • <span style="color:var(--warning)">${meta.subject}</span>`;
       } else if (meta.mode === "driving") {
         debugInfo += ` • <span style="color:var(--accent-blue)">🚗 Driving</span>`;
-        // 커맨드 발생 시 표시
-        if (reply.command) {
-          debugInfo += ` • <span style="color:var(--success)">CMD: ${reply.command.type}</span>`;
-        } else if (reply.ui_hints?.status === "conflict") {
+        if (reply.payload?.status === "conflict") {
           debugInfo += ` • <span style="color:var(--error)">Conflict</span>`;
+        } else if (reply.payload?.status === "unsupported") {
+          debugInfo += ` • <span style="color:var(--error)">Unsupported</span>`;
+        } else if (reply.payload?.status === "success") {
+          debugInfo += ` • <span style="color:var(--success)">Success</span>`;
         }
       }
 
@@ -830,12 +901,46 @@
       setJson($("replyJson"), reply);
       setJson($("stateJson"), state);
       saveState({ lastResponse: json, mode: currentMode });
+      
+      // Update UI Simulator if action was successful
+      if (meta.mode === "driving" && reply.command) {
+          updateSimulatorFromCommand(reply.command);
+      }
 
     } catch (err) {
       removeThinking();
       addMsg("bot", "Network Error: " + String(err), nowTime());
       setStatus("error", "Network Error");
     }
+  }
+
+  function updateSimulatorFromCommand(cmd) {
+      if (cmd.type === 'hardware_control') {
+          const part = cmd.params.part;
+          const act = cmd.params.action;
+          const loc = cmd.params.location_detail;
+
+          if (part === 'window' && act === 'open') {
+              $("statWinDriver").value = 'open';
+              $("statWinPass").value = 'open';
+          } else if (part === 'window' && act === 'close') {
+              $("statWinDriver").value = 'closed';
+              $("statWinPass").value = 'closed';
+          }
+          if (part === 'seat_heater' && act === 'on') $("statSeatHeat").value = 'on';
+          if (part === 'seat_heater' && act === 'off') $("statSeatHeat").value = 'off';
+          if (part === 'steering_wheel' && act === 'on') $("statSteeringHeat").value = 'on';
+          if (part === 'steering_wheel' && act === 'off') $("statSteeringHeat").value = 'off';
+          if (part === 'door_lock' && act === 'lock') $("statLock").value = 'locked';
+          if (part === 'door_lock' && act === 'unlock') $("statLock").value = 'unlocked';
+          if (part === 'sunroof' && act === 'open') $("statSunroof").value = 'open';
+          if (part === 'sunroof' && act === 'close') $("statSunroof").value = 'closed';
+      }
+      else if (cmd.type === 'hvac_control') {
+          const act = cmd.params.action;
+          if (act === 'on') $("statHvacPower").value = 'on';
+          if (act === 'off') $("statHvacPower").value = 'off';
+      }
   }
 
   function clearAll() {
@@ -859,8 +964,8 @@
       examples = [
         { msg:"창문 닫아줘" },
         { msg:"엉덩이 따뜻하게 해줘" },
-        { msg:"부산으로 가자" },
-        { msg:"너 누구야?" }
+        { msg:"뒷자리 열선 켜줘 (지원 안 함 테스트)" },
+        { msg:"핸들 열선 켜줘" }
       ];
     }
     const pick = examples[Math.floor(Math.random() * examples.length)];
@@ -875,9 +980,12 @@
       $("subjectContext").value = "general";
     } else {
       // Driving 기본값 리셋
+      document.querySelectorAll('input[name="feature"]').forEach(cb => cb.checked = true);
       $("statWinDriver").value = "closed";
       $("statWinPass").value = "closed";
       $("statHvacPower").value = "off";
+      $("statSeatHeat").value = "off";
+      $("statLock").value = "locked";
     }
   }
 

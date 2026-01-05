@@ -11,7 +11,7 @@ DRIVING_SCHEMA = {
         "control_hvac": {
             "group": "climate",
             "required_slots": ["action"],
-            "optional_slots": ["target_temp", "seat_location", "fan_speed"]
+            "optional_slots": ["target_temp", "seat_location", "fan_speed", "hvac_mode"]
         },
         "navigate_to": {
             "group": "navigation",
@@ -32,30 +32,31 @@ DRIVING_SCHEMA = {
     },
 
     "slots": {
-        # [핵심] values에 정의된 영어 값으로만 추출되도록 유도
         "target_part": {
             "type": "enum", 
-            # policy.py 로직과 일치하도록 값 추가 및 명칭 통일
-            # - door -> door_lock (policy의 키와 일치)
-            # - seat_heater 추가
-            "values": ["window", "trunk", "frunk", "door_lock", "light", "wiper", "mirror", "seat_heater"]
+            "values": [
+                "window", "trunk", "frunk", "door_lock", "light", "wiper", "mirror", 
+                "seat_heater", "seat_ventilation", "steering_wheel", "sunroof", "charge_port", "fuel_cap",
+                "high_beam", "fog_light"
+            ]
         },
         "action": {
             "type": "enum", 
-            "values": ["open", "close", "on", "off", "lock", "unlock", "up", "down"]
+            "values": ["open", "close", "on", "off", "lock", "unlock", "up", "down", "fold", "unfold", "tilt"]
         },
         "location_detail": {
             "type": "enum", 
-            "values": ["driver", "passenger", "rear_left", "rear_right", "all"]
+            "values": ["driver", "passenger", "rear", "rear_left", "rear_right", "all"]
         },
         
         # HVAC
         "target_temp": {"type": "integer", "min": 16, "max": 30},
         "seat_location": {"type": "enum", "values": ["driver", "passenger", "rear", "all"]},
         "fan_speed": {"type": "integer", "min": 1, "max": 5},
+        "hvac_mode": {"type": "enum", "values": ["heat", "cool", "auto", "dry", "defog", "fresh_air", "recirculation"]},
 
         # Navigation
-        "destination": {"type": "string", "max_len": 100}, # 주소는 enum 불가
+        "destination": {"type": "string", "max_len": 100},
         "waypoint": {"type": "string", "max_len": 100},
         "poi_type": {"type": "enum", "values": ["charging_station", "parking", "restaurant", "cafe", "toilet"]},
         "sort_by": {"type": "enum", "values": ["distance", "price", "rating"]},

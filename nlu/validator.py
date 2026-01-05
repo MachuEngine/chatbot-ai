@@ -18,6 +18,17 @@ TEMPLATES = {
     "result.fail.generic": "",
 }
 
+_KO_PART = {
+    "window": "창문", "door_lock": "문", "seat_heater": "열선 시트", "seat_ventilation": "통풍 시트",
+    "trunk": "트렁크", "frunk": "프렁크", "light": "조명", "wiper": "와이퍼", "mirror": "사이드 미러",
+    "sunroof": "선루프", "steering_wheel": "핸들 열선", "charge_port": "충전구"
+}
+_KO_ACTION = {
+    "open": "엽니다", "close": "닫습니다", "on": "켭니다", "off": "끕니다",
+    "lock": "잠급니다", "unlock": "엽니다", "up": "올립니다", "down": "내립니다",
+    "fold": "접습니다", "unfold": "폅니다", "tilt": "기울입니다"
+}
+
 
 def _slot_value(slots: Dict[str, Any], key: str) -> Any:
     v = slots.get(key)
@@ -154,59 +165,75 @@ def validate_and_build_action(
 
     # [Driving Domain]
     if domain == "driving":
-        # 1. 상태 충돌 검사
         vehicle_status = meta.get("vehicle_status") or {}
-        conflict_reason = check_action_validity(intent, slots, vehicle_status)
+        # [수정] meta에서 supported_features 추출 (없으면 None)
+        supported_features = meta.get("supported_features") 
+        
+        conflict_reason = check_action_validity(intent, slots, vehicle_status, supported_features)
 
+        # 1. Conflict or Unsupported
         if conflict_reason:
-            # 2-A. 이미 완료된 상태 -> Command 없이 피드백만
+            base_text = "이미 처리되어 있습니다."
+            status_code = "conflict"
+            
+            # [핵심] 미지원 기능일 경우 상태코드 변경
+            if conflict_reason == "feature_not_supported":
+                base_text = "지원하지 않는 기능입니다."
+                status_code = "unsupported"
+            
             action = {
                 "reply": {
-                    "action_type": "answer", # vehicle_action 아님
-                    "text": "이미 처리되어 있습니다.", # Fallback, LLM이 덮어씌움
+                    "action_type": "answer",
+                    "text": base_text, 
                     "message_key": f"result.driving.conflict.{conflict_reason}", 
-                    "ui_hints": {"domain": domain, "intent": intent, "status": "conflict"},
-                    # [중요] LLM Rewrite를 위한 문맥 정보 전달
+                    "ui_hints": {"domain": domain, "intent": intent, "status": status_code},
                     "payload": {
+                        "intent": intent,
+                        "status": status_code,
                         "conflict_reason": conflict_reason,
                         "target_part": _slot_value(slots, "target_part"),
-                        "action": _slot_value(slots, "action"),
-                        "location_detail": _slot_value(slots, "location_detail"),
                     }
                 }
             }
-            # [수정] 충돌 시에도 현재 도메인 상태 업데이트 필요
-            new_state = _merge_state(
-                state, 
-                {
-                    "current_domain": domain, 
-                    "active_intent": intent,
-                    "last_bot_action": "conflict_feedback"
-                }
-            )
+            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
             return action, new_state
 
-        # 2-B. 정상 실행
+        # 2. Success
         command_payload = build_vehicle_command(intent, slots)
+        params = command_payload.get("params", {})
+        
+        base_text = "요청을 처리합니다."
+        if intent == "control_hardware":
+            part = str(params.get("part") or "")
+            act = str(params.get("action") or "")
+            ko_part = _KO_PART.get(part, part)
+            ko_act = _KO_ACTION.get(act, act)
+            base_text = f"{ko_part} {ko_act}."
+        
+        elif intent == "control_hvac":
+            act = str(params.get("action") or "")
+            ko_act = _KO_ACTION.get(act, act)
+            mode = str(params.get("hvac_mode") or "")
+            dev_name = "공조장치"
+            if mode == "heat": dev_name = "히터"
+            elif mode == "cool": dev_name = "에어컨"
+            base_text = f"{dev_name} {ko_act}."
+
+        facts = dict(params)
+        facts["intent"] = intent
+        facts["status"] = "success"
+
         action = {
             "reply": {
                 "action_type": "vehicle_action",
-                "text": "처리하겠습니다.", 
+                "text": base_text, 
                 "command": command_payload,
                 "ui_hints": {"domain": domain, "intent": intent},
                 "message_key_ok": message_key_ok,
-                "payload": command_payload.get("params", {}), # 렌더러용 팩트
+                "payload": facts, 
             }
         }
-        new_state = _merge_state(
-            state, 
-            {
-                "current_domain": domain, 
-                "active_intent": intent,
-                "slots": {},
-                "last_bot_action": intent
-            }
-        )
+        new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
         return action, new_state
 
     # [Kiosk / Add Item]

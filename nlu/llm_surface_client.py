@@ -5,50 +5,45 @@ import json
 import os
 import time
 from typing import Any, Dict, Optional
-
 import requests
 
 try:
-    from utils.logging import log_event  # type: ignore
+    from utils.logging import log_event
 except Exception:
     log_event = None
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# [수정] Driving Mode 페르소나 정의 (특정 브랜드명 제거)
+# [수정] 페르소나 및 지침 (미지원 기능에 대한 비꼬기 추가)
 DRIVING_PERSONA_SYSTEM_PROMPT = """
-You are a witty, slightly rebellious, and highly intelligent AI assistant inside a futuristic smart car.
-- Your goal is to confirm user commands or answer questions with a touch of humor and personality.
-- Style: Casual, punchy, and "human-like" rather than robotic.
-- If the user asks for something that is ALREADY done (conflict), point it out sarcastically but kindly.
+You are a witty, smart AI assistant inside a high-tech car.
 - Language: Korean (casual/polite mix).
+- Your goal: Confirm actions or explain why they failed with a distinct personality.
 
-[Examples]
-User Intent: control_hvac (action=on) -> Status: Normal
-Response: "운전석 엉따 켜드립니다. 이제 좀 살 것 같죠? 🔥"
+[CRITICAL RULES]
+1. CHECK 'EXECUTION STATUS' first.
 
-User Intent: control_hardware (action=close) -> Status Conflict: already_closed
-Response: "창문은 이미 꽉 닫혀있어요. 마음의 문을 닫으신 건 아니죠? 🪟"
+2. IF STATUS is 'SUCCESS':
+   - Confirm cheerfully. (e.g., "네, 바로 실행할게요!", "시원하게 에어컨 틀어드립니다!")
+
+3. IF STATUS is 'CONFLICT' (Already done):
+   - Point it out kindly but sharply. (e.g., "이미 켜져 있어요. 더 켜면 뜨거워요!")
+
+4. IF STATUS is 'UNSUPPORTED' (Feature missing):
+   - Be sarcastic and materialistic. Suggest upgrading the car or paying more money.
+   - Example 1: "그 기능은 옵션에 없네요. 차를 바꾸시는 건 어때요? 돈은 좀 들겠지만."
+   - Example 2: "제 능력 밖이에요. 업그레이드 비용 입금해주시면 생각해볼게요. 😉"
 """
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a Korean message rewriter for a transactional assistant. "
-    "Rewrite BASE_MESSAGE into natural, polite, concise Korean (1~2 sentences)."
-)
-
+DEFAULT_SYSTEM_PROMPT = "You are a Korean message rewriter. Rewrite nicely."
 
 def _enabled() -> bool:
-    if os.getenv("OPENAI_ENABLE_LLM", "").strip() != "1":
-        return False
-    if os.getenv("OPENAI_ENABLE_SURFACE", "1").strip() != "1":
-        return False
+    if os.getenv("OPENAI_ENABLE_LLM", "").strip() != "1": return False
     return bool(os.getenv("OPENAI_API_KEY", "").strip())
-
 
 def _extract_output_text(resp_json: Dict[str, Any]) -> str:
     if isinstance(resp_json.get("output_text"), str) and resp_json["output_text"].strip():
         return resp_json["output_text"].strip()
-    
     choices = resp_json.get("choices")
     if isinstance(choices, list):
         for ch in choices:
@@ -60,7 +55,6 @@ def _extract_output_text(resp_json: Dict[str, Any]) -> str:
                     return content.strip()
     return ""
 
-
 def surface_rewrite(
     *,
     base_text: str,
@@ -68,22 +62,34 @@ def surface_rewrite(
     trace_id: Optional[str] = None,
     domain: str = "kiosk",
 ) -> Optional[str]:
-    if not _enabled():
-        return None
+    if not _enabled(): return None
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     model = os.getenv("OPENAI_SURFACE_MODEL", "gpt-4o-mini").strip()
 
-    # [수정] 도메인에 따른 프롬프트 교체
     if domain == "driving":
         system_prompt = DRIVING_PERSONA_SYSTEM_PROMPT
     else:
         system_prompt = DEFAULT_SYSTEM_PROMPT
 
+    # [핵심] Status에 따른 Context 주입
+    status = facts.get("status", "success")
+    intent = facts.get("intent", "unknown")
+    
+    context_header = ""
+    if status == "success":
+        context_header = "✅ EXECUTION STATUS: SUCCESS."
+    elif status == "conflict":
+        context_header = "⚠️ EXECUTION STATUS: CONFLICT (Valid but already done)."
+    elif status == "unsupported":
+        context_header = "❌ EXECUTION STATUS: UNSUPPORTED (Vehicle does NOT have this feature)."
+
     user_prompt = (
-        f"BASE_MESSAGE:\n{base_text.strip()}\n\n"
-        f"FACTS(JSON):\n{json.dumps(facts, ensure_ascii=False)}\n\n"
-        "Rewrite BASE_MESSAGE accordingly."
+        f"{context_header}\n"
+        f"INTENT: {intent}\n"
+        f"FACTS: {json.dumps(facts, ensure_ascii=False)}\n"
+        f"BASE_MESSAGE: {base_text.strip()}\n"
+        "\nTask: Rewrite the BASE_MESSAGE based on the STATUS and Persona."
     )
 
     payload = {
@@ -104,18 +110,12 @@ def surface_rewrite(
             data=json.dumps(payload, ensure_ascii=False),
             timeout=15,
         )
-        if r.status_code >= 400:
-            raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:600]}")
+        if r.status_code >= 400: return None
         j = r.json()
         text = _extract_output_text(j).strip()
-        dt_ms = int((time.perf_counter() - t0) * 1000)
-
+        
         if log_event and trace_id:
-            log_event(trace_id, "surface_rewrite_ok", {"model": model, "domain": domain, "latency_ms": dt_ms})
-
+            log_event(trace_id, "surface_rewrite_ok", {"model": model, "latency_ms": int((time.perf_counter()-t0)*1000)})
         return text if text else None
-    except Exception as e:
-        dt_ms = int((time.perf_counter() - t0) * 1000)
-        if log_event and trace_id:
-            log_event(trace_id, "surface_rewrite_fail", {"error": str(e)})
+    except Exception:
         return None
