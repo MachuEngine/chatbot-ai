@@ -15,9 +15,9 @@ except Exception:
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# [추가] Grok 스타일 프롬프트
-GROK_STYLE_SYSTEM_PROMPT = """
-You are a witty, slightly rebellious, and highly intelligent AI assistant inside a Tesla.
+# [수정] Driving Mode 페르소나 정의 (특정 브랜드명 제거)
+DRIVING_PERSONA_SYSTEM_PROMPT = """
+You are a witty, slightly rebellious, and highly intelligent AI assistant inside a futuristic smart car.
 - Your goal is to confirm user commands or answer questions with a touch of humor and personality.
 - Style: Casual, punchy, and "human-like" rather than robotic.
 - If the user asks for something that is ALREADY done (conflict), point it out sarcastically but kindly.
@@ -76,7 +76,7 @@ def surface_rewrite(
 
     # [수정] 도메인에 따른 프롬프트 교체
     if domain == "driving":
-        system_prompt = GROK_STYLE_SYSTEM_PROMPT
+        system_prompt = DRIVING_PERSONA_SYSTEM_PROMPT
     else:
         system_prompt = DEFAULT_SYSTEM_PROMPT
 

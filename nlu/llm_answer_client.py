@@ -49,10 +49,6 @@ def answer_with_openai(
 ) -> str:
     """
     executor.py 호환용 “단순 답변 생성” 함수.
-
-    - 기존 프로젝트에 이미 있는 llm_answer_client.py를 유지하면서
-      executor가 import하는 함수명(answer_with_openai)을 제공한다.
-    - 내부 호출은 기존과 동일하게 chat.completions.create 사용.
     """
     enable = (os.getenv("OPENAI_ENABLE_LLM") or "").strip() == "1"
     if not enable:
@@ -68,8 +64,6 @@ def answer_with_openai(
 
     c = _client()
 
-    # max_output_tokens는 SDK/엔드포인트/버전에 따라 파라미터명이 다를 수 있어
-    # 네가 지금 쓰는 chat.completions에서는 max_tokens가 일반적.
     kwargs: Dict[str, Any] = {}
     if max_output_tokens is not None:
         kwargs["max_tokens"] = int(max_output_tokens)
@@ -186,3 +180,12 @@ def generate_text_with_llm(kind: str, slots: Dict[str, Any], trace_id: Optional[
 
     log_event(trace_id, "edu_llm_ok", {"model": model, "kind": kind, "text_len": len(text)})
     return text
+
+
+# [추가] response_renderer에서 사용하는 호환용 함수들
+def generate_education_answer(question: str, trace_id: Optional[str] = None) -> str:
+    return generate_text_with_llm(kind="edu_ask_question", slots={"question": question}, trace_id=trace_id)
+
+
+def generate_education_summary(content: str, trace_id: Optional[str] = None) -> str:
+    return generate_text_with_llm(kind="edu_summarize_text", slots={"content": content}, trace_id=trace_id)

@@ -35,7 +35,10 @@ DRIVING_SCHEMA = {
         # [핵심] values에 정의된 영어 값으로만 추출되도록 유도
         "target_part": {
             "type": "enum", 
-            "values": ["window", "trunk", "frunk", "door", "light", "wiper", "mirror"]
+            # policy.py 로직과 일치하도록 값 추가 및 명칭 통일
+            # - door -> door_lock (policy의 키와 일치)
+            # - seat_heater 추가
+            "values": ["window", "trunk", "frunk", "door_lock", "light", "wiper", "mirror", "seat_heater"]
         },
         "action": {
             "type": "enum", 

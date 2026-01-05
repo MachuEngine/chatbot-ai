@@ -11,7 +11,6 @@ from domain.kiosk.policy import (
     find_missing_required_option_group,
     default_catalog_repo,
 )
-# [추가] Driving Policy import
 from domain.driving.policy import build_vehicle_command, check_action_validity
 
 TEMPLATES = {
@@ -167,9 +166,24 @@ def validate_and_build_action(
                     "text": "이미 처리되어 있습니다.", # Fallback, LLM이 덮어씌움
                     "message_key": f"result.driving.conflict.{conflict_reason}", 
                     "ui_hints": {"domain": domain, "intent": intent, "status": "conflict"},
+                    # [중요] LLM Rewrite를 위한 문맥 정보 전달
+                    "payload": {
+                        "conflict_reason": conflict_reason,
+                        "target_part": _slot_value(slots, "target_part"),
+                        "action": _slot_value(slots, "action"),
+                        "location_detail": _slot_value(slots, "location_detail"),
+                    }
                 }
             }
-            new_state = _merge_state(state, {"last_bot_action": "conflict_feedback"})
+            # [수정] 충돌 시에도 현재 도메인 상태 업데이트 필요
+            new_state = _merge_state(
+                state, 
+                {
+                    "current_domain": domain, 
+                    "active_intent": intent,
+                    "last_bot_action": "conflict_feedback"
+                }
+            )
             return action, new_state
 
         # 2-B. 정상 실행
@@ -181,6 +195,7 @@ def validate_and_build_action(
                 "command": command_payload,
                 "ui_hints": {"domain": domain, "intent": intent},
                 "message_key_ok": message_key_ok,
+                "payload": command_payload.get("params", {}), # 렌더러용 팩트
             }
         }
         new_state = _merge_state(

@@ -5,6 +5,14 @@ def _norm(val: Any) -> str:
     if not isinstance(val, str): return ""
     return val.lower().strip()
 
+def _get_slot_value(slots: Dict[str, Any], key: str) -> Any:
+    """
+    슬롯 딕셔너리에서 값을 안전하게 추출하는 헬퍼 함수
+    """
+    v = slots.get(key)
+    if isinstance(v, dict): return v.get("value")
+    return v
+
 def check_action_validity(intent: str, slots: Dict[str, Any], current_status: Dict[str, Any]) -> Optional[str]:
     """
     명령 수행 전, 현재 상태와 비교하여 불필요한 행동(Conflict)인지 체크
@@ -12,16 +20,11 @@ def check_action_validity(intent: str, slots: Dict[str, Any], current_status: Di
     if not current_status:
         return None
 
-    def _val(k):
-        v = slots.get(k)
-        if isinstance(v, dict): return v.get("value")
-        return v
-
     # 1. 하드웨어 제어
     if intent == "control_hardware":
-        part = _norm(_val("target_part"))      # window
-        action = _norm(_val("action"))         # close
-        loc = _norm(_val("location_detail"))   # all / driver / null
+        part = _norm(_get_slot_value(slots, "target_part"))
+        action = _norm(_get_slot_value(slots, "action"))
+        loc = _norm(_get_slot_value(slots, "location_detail"))
 
         # [수정] 부품별 관련 상태 키 매핑
         # 차량이 보내주는 실제 status key들과 매칭되어야 함
@@ -37,16 +40,37 @@ def check_action_validity(intent: str, slots: Dict[str, Any], current_status: Di
                 target_keys = [k for k in all_windows if k in current_status]
         
         elif part == "seat_heater":
-            target_keys = [f"seat_heater_{loc}"] if loc else ["seat_heater_driver"]
+            # Schema에 seat_heater 추가됨에 따른 로직 보완
+            # 예: seat_heater_driver, seat_heater_passenger 등
+            if loc in ["driver", "passenger", "rear_left", "rear_right"]:
+                target_keys = [f"seat_heater_{loc}"]
+            elif loc == "all":
+                 target_keys = [k for k in current_status if k.startswith("seat_heater_")]
+            else:
+                 # 기본값은 운전석 혹은 전체, 정책에 따라 결정 (여기선 driver default)
+                 target_keys = ["seat_heater_driver"]
         
         elif part == "trunk":
             target_keys = ["trunk"]
         
+        elif part == "frunk":
+            target_keys = ["frunk"]
+
         elif part == "door_lock":
+            # Schema와 명칭 통일 (door -> door_lock)
             target_keys = ["door_lock"]
+            
+        elif part == "light":
+             target_keys = ["light_head", "light_ambient"] # 예시 키
+
+        elif part == "wiper":
+             target_keys = ["wiper_front"]
+
+        elif part == "mirror":
+             target_keys = ["mirror_side"]
 
         if not target_keys:
-            return None # 상태 정보가 없으면 제어 허용
+            return None # 상태 정보가 없거나 매핑되지 않은 부품이면 제어 허용
 
         # [중요] "전체" 대상일 때의 충돌 판단 로직
         # 예: "창문 닫아" -> "모든" 창문이 이미 closed여야 conflict
@@ -78,7 +102,7 @@ def check_action_validity(intent: str, slots: Dict[str, Any], current_status: Di
 
     # 2. 공조 제어
     elif intent == "control_hvac":
-        action = _norm(_val("action"))
+        action = _norm(_get_slot_value(slots, "action"))
         current_power = current_status.get("hvac_power")
 
         if action == "on" and current_power == "on":
@@ -93,42 +117,37 @@ def build_vehicle_command(intent: str, slots: Dict[str, Any]) -> Dict[str, Any]:
     """
     NLU 슬롯 결과를 차량 제어용 JSON 커맨드로 변환
     """
-    def _val(k):
-        v = slots.get(k)
-        if isinstance(v, dict): return v.get("value")
-        return v
-
     command = {"type": "none", "params": {}}
 
     if intent == "control_hvac":
         command["type"] = "hvac_control"
         command["params"] = {
-            "action": _norm(_val("action")) or "on",
-            "target_temp": _val("target_temp"),
-            "seat_location": _val("seat_location"),
-            "fan_speed": _val("fan_speed"),
+            "action": _norm(_get_slot_value(slots, "action")) or "on",
+            "target_temp": _get_slot_value(slots, "target_temp"),
+            "seat_location": _get_slot_value(slots, "seat_location"),
+            "fan_speed": _get_slot_value(slots, "fan_speed"),
         }
 
     elif intent == "control_hardware":
         command["type"] = "hardware_control"
         command["params"] = {
-            "part": _norm(_val("target_part")),
-            "action": _norm(_val("action")),
-            "location_detail": _val("location_detail"),
+            "part": _norm(_get_slot_value(slots, "target_part")),
+            "action": _norm(_get_slot_value(slots, "action")),
+            "location_detail": _get_slot_value(slots, "location_detail"),
         }
 
     elif intent == "navigate_to":
         command["type"] = "navigation"
         command["params"] = {
-            "destination": _val("destination"),
-            "waypoint": _val("waypoint"),
+            "destination": _get_slot_value(slots, "destination"),
+            "waypoint": _get_slot_value(slots, "waypoint"),
         }
 
     elif intent == "find_poi":
         command["type"] = "search_poi"
         command["params"] = {
-            "poi_type": _val("poi_type"),
-            "sort_by": _val("sort_by"),
+            "poi_type": _get_slot_value(slots, "poi_type"),
+            "sort_by": _get_slot_value(slots, "sort_by"),
         }
     
     return command

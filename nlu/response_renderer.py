@@ -82,9 +82,8 @@ def render_from_result(
     if not text.strip() and reply.get("text"):
         text = reply["text"]
 
-    # 3) Surface Rewrite (Grok 적용)
+    # 3) Surface Rewrite (Driving Persona 적용)
     if ok and _surface_enabled(message_key):
-        # [수정] 도메인 판별 로직 추가
         domain_scope = "kiosk"
         if "driving" in message_key:
             domain_scope = "driving"
@@ -93,7 +92,7 @@ def render_from_result(
             base_text=text, 
             facts=vars, 
             trace_id=trace_id,
-            domain=domain_scope  # [중요] 이 부분이 빠져 있어서 기본값(kiosk)으로 동작했습니다.
+            domain=domain_scope 
         )
         if rewritten:
             return rewritten

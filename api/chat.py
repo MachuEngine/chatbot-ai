@@ -13,7 +13,8 @@ from nlu.llm_client import nlu_with_llm
 from nlu.validator import validate_and_build_action
 from nlu.normalizer import apply_session_rules
 from nlu.edu_answer_llm import generate_edu_answer_with_llm
-# from nlu.edu_guard import is_edu_relevant  <-- ✅ 제거 (모든 질문 허용)
+# [추가] 렌더러 함수 임포트
+from nlu.response_renderer import render_from_result
 from utils.logging import log_event
 from utils.trace_utils import state_summary, nlu_diff_hint
 from domain.kiosk.policy import default_catalog_repo
@@ -128,11 +129,9 @@ def chat(req: ChatRequest):
 
     user_message = (req.user_message or "")
 
-    # ✅ [변경] Meta에서 Platform ID, User ID 추출 (없으면 기본값)
+    # Meta에서 Platform ID, User ID 추출
     meta_obj = req.meta if isinstance(req.meta, dict) else (req.meta.model_dump() if hasattr(req.meta, "model_dump") else {})
-    
     platform_id = str(meta_obj.get("platform_id") or "web").strip()
-    # 기존 client_session_id가 넘어오면 user_id로 사용 (하위 호환성)
     user_id = str(meta_obj.get("user_id") or meta_obj.get("client_session_id") or "").strip()
 
     edu_payload = _merge_edu_payload_from_req_and_meta(req)
@@ -158,14 +157,12 @@ def chat(req: ChatRequest):
 
     try:
         stage = "state_loaded"
-        # ✅ [변경] platform_id, user_id 기반 세션 로드
         state = sessions.get(platform_id, user_id, trace_id=trace_id)
         
-        # ✅ 사용자 메시지를 히스토리에 추가
+        # 사용자 메시지를 히스토리에 추가
         if "history" not in state:
             state["history"] = []
         state["history"].append({"role": "user", "content": user_message, "ts": time.time()})
-        # 길이 제한 (최근 30개 유지)
         if len(state["history"]) > 30:
             state["history"] = state["history"][-30:]
 
@@ -225,10 +222,7 @@ def chat(req: ChatRequest):
             llm_task = action["llm_task"]
 
             if (nlu2.get("domain") == "education") and llm_task.get("type") == "edu_answer_generation":
-                
-                # History 전달
                 history_list = state.get("history", [])
-                
                 generated = generate_edu_answer_with_llm(
                     task_input=llm_task.get("input") or {},
                     user_message=user_message,
@@ -252,7 +246,28 @@ def chat(req: ChatRequest):
                     {"type": "edu_answer_generation", "reply_text_len": len(reply.get("text") or "")},
                 )
 
-        # ✅ 봇의 응답을 히스토리에 추가
+        # ✅ [추가] Renderer 호출 (Template & LLM Surface Rewrite 적용)
+        # 이 단계가 없어서 Validator가 준 기본 텍스트("이미 처리되어 있습니다")가 그대로 나갔습니다.
+        if isinstance(action, dict) and "reply" in action:
+            # Render를 위한 임시 result 객체 구성
+            # Validator가 action을 리턴했다면 로직 수행은 OK로 간주
+            render_result_mock = {
+                "ok": True,
+                "facts": action["reply"].get("payload", {})
+            }
+            
+            final_text = render_from_result(
+                reply=action["reply"],
+                plan=nlu2,
+                result=render_result_mock,
+                trace_id=trace_id
+            )
+            
+            # 렌더링 된 텍스트(재치있는 답변)로 덮어쓰기
+            if final_text and final_text.strip():
+                action["reply"]["text"] = final_text
+
+        # 봇의 응답을 히스토리에 추가
         reply_text = ""
         if isinstance(action, dict) and isinstance(action.get("reply"), dict):
             reply_text = action["reply"].get("text", "")
@@ -266,15 +281,7 @@ def chat(req: ChatRequest):
                 new_state["history"] = new_state["history"][-30:]
 
         stage = "state_saved"
-        # ✅ [변경] platform_id, user_id 기반 세션 저장
         sessions.set(platform_id, user_id, new_state, trace_id=trace_id)
-        
-        # ------------------------------------------------------------------
-        # [Placeholder] DB Logging (Hybrid Approach)
-        # 추후 RDBMS/NoSQL 도입 시 여기서 대화 로그를 영구 저장합니다.
-        # if DB_ENABLED:
-        #     db.save_chat_log(platform_id, user_id, user_message, reply_text)
-        # ------------------------------------------------------------------
 
         log_event(
             trace_id,
