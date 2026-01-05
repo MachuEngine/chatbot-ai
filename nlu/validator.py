@@ -127,13 +127,23 @@ def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, An
         "slots": state.get("slots", {}),
         "last_bot_action": state.get("last_bot_action"),
     }
+    
+    # [Fix] Education Context Fields 누락 수정
     safe_meta = {
         "locale": meta.get("locale"),
         "timezone": meta.get("timezone"),
         "device_type": meta.get("device_type"),
         "mode": meta.get("mode"),
         "input_type": meta.get("input_type"),
+        # 교육 관련 필드 추가
+        "user_level": meta.get("user_level"),
+        "user_age_group": meta.get("user_age_group"),
+        "subject": meta.get("subject"),
+        "tone_style": meta.get("tone_style"),
+        "target_exam": meta.get("target_exam"),
+        "native_language": meta.get("native_language"),
     }
+    
     return {
         "type": "edu_answer_generation",
         "input": {"intent": intent, "slots": slots or {}, "meta": safe_meta, "state": safe_state},
@@ -189,6 +199,9 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "2. **Safety Risk (Gear Check)**:\n"
         "   - Opening trunk/frunk/door is **SAFE** ONLY IF gear is 'P'.\n"
         "   - If gear is D, R, N -> **REJECT** (Unsafe).\n"
+        "\n"
+        "3. **Context Conflict**:\n"
+        "   - Heater when hot (>28C) or AC when cold (<15C) => **Confirm Conflict**.\n"
         "\n"
         "Return JSON only:\n"
         "{\n"
@@ -345,7 +358,7 @@ def validate_and_build_action(
             new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
             return action, new_state
 
-        # [Fix] 톤 가이드 초기화 (navigate_to 등 다른 인텐트를 위해 미리 선언)
+        # [Tone Init]
         tone_guidance = "neutral"
         effective_mode = ""
 
@@ -446,7 +459,6 @@ def validate_and_build_action(
             else:
                 base_text = f"공조장치를 {ko_act}."
         
-        # [추가] 내비게이션 등 기타 인텐트 처리
         elif intent == "navigate_to":
             dest = str(params.get("destination") or "")
             base_text = f"{dest}로 안내를 시작합니다."
