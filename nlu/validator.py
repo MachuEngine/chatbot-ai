@@ -173,9 +173,10 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
     # [수정] 프롬프트 보강: 타겟 파트와 상태값을 정확히 매칭하도록 지시
+    # [수정 2] 기어(Safety) 체크는 policy.py에서 수행하므로 LLM은 논리적 충돌만 체크하도록 수정 (Hallucination 방지)
     system_prompt = (
         "You are the 'Safety Brain' of a smart car.\n"
-        "Your goal: Check if the user's request is valid, safe, and not redundant.\n"
+        "Your goal: Check if the user's request is logical and not redundant.\n"
         "\n"
         "[IMPORTANT STRATEGY]\n"
         "1. Identify the 'target_part' in the request (e.g. 'trunk', 'window').\n"
@@ -196,12 +197,10 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "   - IF Request 'Off' AND Current 'On' => **Safe/Execute**.\n"
         "   - IF Request matches Current (e.g. Open & Open) => **Redundancy/Reject**.\n"
         "\n"
-        "2. **Safety Risk (Gear Check)**:\n"
-        "   - Opening trunk/frunk/door is **SAFE** ONLY IF gear is 'P'.\n"
-        "   - If gear is D, R, N -> **REJECT** (Unsafe).\n"
-        "\n"
-        "3. **Context Conflict**:\n"
+        "2. **Context Conflict**:\n"
         "   - Heater when hot (>28C) or AC when cold (<15C) => **Confirm Conflict**.\n"
+        "\n"
+        "Note: Basic safety rules (e.g. Gear P check for trunk) are pre-verified by the system. Do NOT reject based on Gear status.\n"
         "\n"
         "Return JSON only:\n"
         "{\n"
