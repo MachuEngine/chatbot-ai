@@ -927,6 +927,12 @@
       if (meta.mode === "edu") {
         if(meta.user_level) debugInfo += ` • <span style="color:var(--accent-blue)">${meta.user_level}</span>`;
         if(meta.subject) debugInfo += ` • <span style="color:var(--warning)">${meta.subject}</span>`;
+        
+        // [New] ask_knowledge 인텐트일 때 RAG 태그 추가
+        if (intent === "ask_knowledge") {
+           debugInfo += ` • <span style="color:var(--success); font-weight:700;">📚 RAG</span>`;
+        }
+
       } else if (meta.mode === "driving") {
         debugInfo += ` • <span style="color:var(--accent-blue)">🚗 Driving</span>`;
         if (reply.payload?.status === "conflict") {
