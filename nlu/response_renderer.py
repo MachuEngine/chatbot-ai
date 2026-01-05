@@ -17,7 +17,12 @@ def _format_template(key: str, vars: Dict[str, Any]) -> str:
 
 
 def _surface_enabled(message_key: str) -> bool:
-    return message_key.startswith("result.kiosk.")
+    # [확인] driving 도메인 허용
+    if message_key.startswith("result.kiosk."):
+        return True
+    if message_key.startswith("result.driving."):
+        return True
+    return False
 
 
 def _options_text(facts: Dict[str, Any]) -> str:
@@ -46,23 +51,21 @@ def render_from_result(
     facts = result.get("facts")
     facts = facts if isinstance(facts, dict) else {}
 
-    # 1) education 본문 생성 (llm_task가 있으면 최우선)
+    # 1) Education
     llm_task = reply.get("llm_task") if isinstance(reply.get("llm_task"), dict) else None
     if isinstance(llm_task, dict):
         kind = llm_task.get("kind")
         if kind == "edu_answer":
             q = str(llm_task.get("question") or "").strip()
             out = generate_education_answer(question=q, trace_id=trace_id)
-            if out:
-                return out
+            if out: return out
         if kind == "edu_summary":
             c = str(llm_task.get("content") or "").strip()
             out = generate_education_summary(content=c, trace_id=trace_id)
-            if out:
-                return out
+            if out: return out
         return _format_template("result.fail.generic", {})
 
-    # 2) 템플릿 기반
+    # 2) Template
     key_ok = reply.get("message_key_ok") or reply.get("message_key") or "fallback.mvp"
     key_fail = reply.get("message_key_fail") or "result.fail.generic"
     message_key = str(key_ok if ok else key_fail)
@@ -76,9 +79,23 @@ def render_from_result(
 
     text = _format_template(message_key, vars)
 
-    # 3) kiosk 결과 문구는 표현만 리라이트(선택)
+    if not text.strip() and reply.get("text"):
+        text = reply["text"]
+
+    # 3) Surface Rewrite (Grok 적용)
     if ok and _surface_enabled(message_key):
-        rewritten = surface_rewrite(base_text=text, facts=vars, trace_id=trace_id)
+        # [수정] 도메인 판별 로직 추가
+        domain_scope = "kiosk"
+        if "driving" in message_key:
+            domain_scope = "driving"
+
+        rewritten = surface_rewrite(
+            base_text=text, 
+            facts=vars, 
+            trace_id=trace_id,
+            domain=domain_scope  # [중요] 이 부분이 빠져 있어서 기본값(kiosk)으로 동작했습니다.
+        )
         if rewritten:
             return rewritten
+
     return text

@@ -10,10 +10,31 @@ import requests
 
 try:
     from utils.logging import log_event  # type: ignore
-except Exception:  # pragma: no cover
-    log_event = None  # type: ignore
+except Exception:
+    log_event = None
 
-OPENAI_API_URL = "https://api.openai.com/v1/responses"
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+
+# [추가] Grok 스타일 프롬프트
+GROK_STYLE_SYSTEM_PROMPT = """
+You are a witty, slightly rebellious, and highly intelligent AI assistant inside a Tesla.
+- Your goal is to confirm user commands or answer questions with a touch of humor and personality.
+- Style: Casual, punchy, and "human-like" rather than robotic.
+- If the user asks for something that is ALREADY done (conflict), point it out sarcastically but kindly.
+- Language: Korean (casual/polite mix).
+
+[Examples]
+User Intent: control_hvac (action=on) -> Status: Normal
+Response: "운전석 엉따 켜드립니다. 이제 좀 살 것 같죠? 🔥"
+
+User Intent: control_hardware (action=close) -> Status Conflict: already_closed
+Response: "창문은 이미 꽉 닫혀있어요. 마음의 문을 닫으신 건 아니죠? 🪟"
+"""
+
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a Korean message rewriter for a transactional assistant. "
+    "Rewrite BASE_MESSAGE into natural, polite, concise Korean (1~2 sentences)."
+)
 
 
 def _enabled() -> bool:
@@ -27,17 +48,16 @@ def _enabled() -> bool:
 def _extract_output_text(resp_json: Dict[str, Any]) -> str:
     if isinstance(resp_json.get("output_text"), str) and resp_json["output_text"].strip():
         return resp_json["output_text"].strip()
-    out = resp_json.get("output")
-    if isinstance(out, list):
-        for item in out:
-            if not isinstance(item, dict):
-                continue
-            content = item.get("content")
-            if not isinstance(content, list):
-                continue
-            for c in content:
-                if isinstance(c, dict) and isinstance(c.get("text"), str) and c["text"].strip():
-                    return c["text"].strip()
+    
+    choices = resp_json.get("choices")
+    if isinstance(choices, list):
+        for ch in choices:
+            if not isinstance(ch, dict): continue
+            msg = ch.get("message")
+            if isinstance(msg, dict):
+                content = msg.get("content")
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
     return ""
 
 
@@ -46,23 +66,21 @@ def surface_rewrite(
     base_text: str,
     facts: Dict[str, Any],
     trace_id: Optional[str] = None,
+    domain: str = "kiosk",
 ) -> Optional[str]:
     if not _enabled():
         return None
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("OPENAI_SURFACE_MODEL", os.getenv("OPENAI_NLU_MODEL", "gpt-4o-mini")).strip() or "gpt-4o-mini"
+    model = os.getenv("OPENAI_SURFACE_MODEL", "gpt-4o-mini").strip()
 
-    system = (
-        "You are a Korean message rewriter for a transactional assistant. "
-        "Rewrite BASE_MESSAGE into natural, polite, concise Korean (1~2 sentences). "
-        "Rules:\n"
-        "1) DO NOT add any new factual details not present in FACTS or BASE_MESSAGE.\n"
-        "2) DO NOT change outcomes implied by BASE_MESSAGE.\n"
-        "3) DO NOT mention AI/models/prompts.\n"
-    )
+    # [수정] 도메인에 따른 프롬프트 교체
+    if domain == "driving":
+        system_prompt = GROK_STYLE_SYSTEM_PROMPT
+    else:
+        system_prompt = DEFAULT_SYSTEM_PROMPT
 
-    user = (
+    user_prompt = (
         f"BASE_MESSAGE:\n{base_text.strip()}\n\n"
         f"FACTS(JSON):\n{json.dumps(facts, ensure_ascii=False)}\n\n"
         "Rewrite BASE_MESSAGE accordingly."
@@ -70,10 +88,11 @@ def surface_rewrite(
 
     payload = {
         "model": model,
-        "input": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
         ],
+        "temperature": 0.7 if domain == "driving" else 0.3,
         "store": False,
     }
 
@@ -92,12 +111,11 @@ def surface_rewrite(
         dt_ms = int((time.perf_counter() - t0) * 1000)
 
         if log_event and trace_id:
-            usage = j.get("usage") if isinstance(j.get("usage"), dict) else {}
-            log_event(trace_id, "surface_rewrite_ok", {"model": model, "latency_ms": dt_ms, "usage": usage})
+            log_event(trace_id, "surface_rewrite_ok", {"model": model, "domain": domain, "latency_ms": dt_ms})
 
         return text if text else None
     except Exception as e:
         dt_ms = int((time.perf_counter() - t0) * 1000)
         if log_event and trace_id:
-            log_event(trace_id, "surface_rewrite_fail", {"model": model, "latency_ms": dt_ms, "error": str(e)})
+            log_event(trace_id, "surface_rewrite_fail", {"error": str(e)})
         return None

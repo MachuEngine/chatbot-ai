@@ -336,6 +336,24 @@ def _openai_nlu_two_stage(
         }
 
     # --- Stage 2: Slot Extraction ---
+    
+    # [변경] 스키마의 Enum 정보를 프롬프트에 주입하여 LLM이 강제로 매핑하도록 함
+    slot_defs = domain_schema.get("slots", {})
+    target_slot_names = _intent_slot_names(domain_schema, intent)
+    
+    constraint_lines = []
+    for sname in target_slot_names:
+        sdef = slot_defs.get(sname)
+        if sdef and sdef.get("type") == "enum" and sdef.get("values"):
+            # Enum 값이 있으면 명시
+            vals_str = ", ".join(sdef["values"])
+            constraint_lines.append(f"- {sname}: MUST be one of [{vals_str}]")
+    
+    constraints_prompt = ""
+    if constraint_lines:
+        constraints_prompt = "\n[SLOT VALUE CONSTRAINTS]\n" + "\n".join(constraint_lines) + "\n"
+        constraints_prompt += "IMPORTANT: Map the user's input (even if Korean) to the exact Enum value above.\n"
+
     slot_guidance: Dict[str, Any] = {}
 
     if domain == "kiosk":
@@ -350,13 +368,14 @@ def _openai_nlu_two_stage(
     elif domain == "education":
         slot_guidance = {
             "RULES": [
-                # ✅ [수정] 범용 주제 추출 가이드
-                "1. TOPIC: Extract the main subject or concept the user wants to learn (e.g., 'Quantum Mechanics', 'French Revolution', 'Subjunctive Mood').",
-                "2. NO GENERIC TOPICS: Do NOT extract generic words (e.g., 'explain', 'help', 'question') as 'topic'. Use 'request_type' instead.",
+                "1. TOPIC: Extract the main subject or concept the user wants to learn (e.g., 'Quantum Mechanics', 'French Revolution').",
+                "2. NO GENERIC TOPICS: Do NOT extract generic words (e.g., 'explain', 'help', 'question') as 'topic'.",
                 "3. CONTEXT: If the topic is unclear, leave it NULL (system will use history).",
                 "4. PAYLOAD: Use edu_payload fields if present."
             ]
         }
+    
+    # Driving 등 기타 도메인은 스키마의 Enum Constraint로 충분히 제어됨
 
     system2 = (
         "You are an NLU slot extractor.\n"
@@ -365,13 +384,13 @@ def _openai_nlu_two_stage(
         "GUIDELINES:\n"
         "1. Focus ONLY on the current message. Do NOT copy slots from history.\n"
         "2. For each slot, fill exactly one value field and leave others null.\n"
-        "3. Follow the 'slot_guidance' rules strictly, especially for 'topic' constraints.\n"
+        "3. Follow the schema types strictly.\n"
+        f"{constraints_prompt}"
         f"Context Reasoning: {reasoning}\n"
     )
 
     schema2 = build_slots_schema(domain, intent, domain_schema)
     
-    # ✅ [유지] Stage 2는 Stateless로 동작 (Phantom Slot 방지)
     user2 = {
         "user_message": msg,
         "meta": _safe_meta_dump(meta),
@@ -451,7 +470,6 @@ def nlu_with_llm(
     candidates: List[Dict[str, Any]],
     trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    # (LLM Enabled 체크 및 에러 핸들링은 기존 유지)
     enable_llm = os.getenv("OPENAI_ENABLE_LLM", "").strip() == "1"
     has_key = bool(os.getenv("OPENAI_API_KEY", "").strip())
 

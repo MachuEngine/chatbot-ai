@@ -16,24 +16,27 @@ class Meta(BaseModel):
     current_url: Optional[str] = None
 
     # 시스템 모드
-    mode: Optional[Literal["kiosk", "edu", "web", "admin"]] = None
+    mode: Optional[Literal["kiosk", "edu", "web", "admin", "driving"]] = None
     input_type: Literal["text", "stt", "voice"] = "text"
+
+    # [추가] 차량 현재 상태 (Driving 모드용)
+    # 예: { "window_driver": "closed", "hvac_power": "on" }
+    vehicle_status: Optional[Dict[str, Any]] = None
 
     # 키오스크 관련
     store_id: Optional[str] = None
     kiosk_type: Optional[Literal["cafe", "cinema", "fastfood", "etc"]] = None
 
-    # ✅ [Edu Context] 모든 메타데이터 필드 명시 (누락 방지)
+    # Edu Context
     user_level: Optional[Literal["beginner", "intermediate", "advanced"]] = None
     user_age_group: Optional[Literal["child", "teen", "adult"]] = None
     
-    subject: Optional[str] = None        # e.g., math, english
-    tone_style: Optional[str] = None     # e.g., kind, strict, socratic
+    subject: Optional[str] = None
+    tone_style: Optional[str] = None
     native_language: Optional[str] = None
     target_exam: Optional[str] = None
     weak_points: Optional[List[str]] = None
 
-    # ✅ [Validator 강화] 모든 Enum성 필드에 대해 대소문자 자동 소문자 변환 적용
     @field_validator(
         'mode', 'input_type', 'kiosk_type', 
         'user_level', 'user_age_group', 
@@ -42,7 +45,6 @@ class Meta(BaseModel):
     )
     @classmethod
     def normalize_lowercase(cls, v):
-        """입력값을 무조건 소문자로 변환하여 저장 (예: "Math" -> "math")"""
         if isinstance(v, str):
             return v.lower().strip()
         return v
