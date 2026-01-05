@@ -77,8 +77,10 @@ def render_from_result(
         vars["options"] = _options_text(vars)
         vars["notes"] = _notes_text(vars)
 
-    # [수정] General Chat일 경우 템플릿(Fallback) 무시하고 질문 원문 사용
-    if facts.get("status") == "general_chat":
+    # [수정] General Chat 또는 LLM Reasoning 결과(reject/confirm)일 경우 템플릿 무시
+    # 이렇게 해야 "이미 켜져 있어요" 같은 Validator의 동적 메시지가 덮어씌워지지 않습니다.
+    status = facts.get("status")
+    if status in ["general_chat", "rejected", "conflict_confirm"]:
         text = reply.get("text", "")
     else:
         text = _format_template(message_key, vars)
