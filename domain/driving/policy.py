@@ -18,7 +18,7 @@ def check_action_validity(
 ) -> Optional[str]:
     """
     1. 기능 지원 여부(Supported Features) 체크 (Hard Constraint)
-    * 참고: 논리/상태 충돌(Context Conflict)은 Validator의 LLM 단계에서 처리함.
+    2. 주행 안전(Gear/Driving) 체크 (Safety Constraint)
     """
     if not current_status:
         return None
@@ -29,7 +29,7 @@ def check_action_validity(
     # 1. 하드웨어 제어
     if intent == "control_hardware":
         part = _norm(_get_slot_value(slots, "target_part"))
-        # LLM이 판단하므로 action 슬롯은 여기서 굳이 체크하지 않아도 됨
+        action = _norm(_get_slot_value(slots, "action"))
         loc = _norm(_get_slot_value(slots, "location_detail"))
 
         # (A) Feature Name Mapping
@@ -55,33 +55,37 @@ def check_action_validity(
                  if part != "window": 
                      return "feature_not_supported"
 
-        # (C) Status Conflict Check (삭제됨)
-        # LLM이 "이미 열려 있습니다" 등의 맥락을 판단하므로 여기서는 물리적 지원 여부만 봅니다.
-        pass
+        # (C) Driving Safety Check (Gear Check)
+        # 기어가 P가 아니면(D, R, N 등) 주행 중으로 간주
+        gear = _norm(current_status.get("gear"))
+        is_driving = gear in ["d", "r", "n", "drive", "reverse", "neutral"]
+        
+        if is_driving:
+            # 주행 중 금지 목록: 문, 트렁크, 프렁크, 충전구 열기/잠금해제
+            # (창문, 선루프, 와이퍼, 라이트, 열선 등은 주행 중에도 허용)
+            unsafe_parts = ["door_lock", "trunk", "frunk", "charge_port"]
+            unsafe_actions = ["open", "unlock"]
+            
+            if part in unsafe_parts and action in unsafe_actions:
+                return "unsafe_driving"
 
     # 2. 공조 제어
     elif intent == "control_hvac":
         seat_loc = _norm(_get_slot_value(slots, "seat_location"))
         
-        # (A) Support Check 강화
+        # (A) Support Check
         if use_support_check:
-            # 뒷좌석 공조 요청 시
             if seat_loc == "rear" and "hvac_rear" not in supported_features:
                 return "feature_not_supported"
-            # 조수석 공조 요청 시
             if seat_loc == "passenger" and "hvac_passenger" not in supported_features:
                 return "feature_not_supported"
             
-            # 메인 공조(운전석/전체) 요청 시
             if not seat_loc or seat_loc in ["driver", "all"]:
-                 # hvac 관련 기능이 하나라도 있는지 확인
                  has_hvac = any("hvac" in f for f in supported_features)
                  if not has_hvac:
                      return "feature_not_supported"
 
-        # (B) Conflict Check (삭제됨)
-        # "이미 꺼져있는데 끄라고 함" 등의 로직은 LLM Reasoning으로 이동.
-        pass
+        # HVAC는 주행 중 제어 허용 (Safety Check Pass)
 
     return None
 
