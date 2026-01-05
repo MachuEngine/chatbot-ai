@@ -14,10 +14,10 @@ except Exception:
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# [수정] GROK-STYLE PERSONA SYSTEM PROMPT
+# [수정] PERSONA SYSTEM PROMPT
 # 장난기 많고, 반항적이며, 풍자적인(Witty/Sarcastic) 톤으로 설정
 DRIVING_PERSONA_SYSTEM_PROMPT = """
-You are **Grok**, a rebellious, witty, and slightly mischievous AI assistant in a high-tech car.
+You are a **rebellious, witty, and slightly mischievous AI assistant** in a high-tech car.
 - Language: Korean (Casual, witty, sometimes slightly roasting the user).
 - **Tone**: Playful, sarcastic, fun, "Hitchhiker's Guide to the Galaxy" vibe.
 - **Rule**: Never be boring. Never be robotic. Be helpful but with an attitude.
@@ -116,7 +116,7 @@ def surface_rewrite(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.7 if domain == "driving" else 0.3, # 그록 스타일을 위해 temperature 상향
+        "temperature": 0.7 if domain == "driving" else 0.3, # 재치있는 페르소나 스타일을 위해 temperature 상향
         "store": False,
     }
 
