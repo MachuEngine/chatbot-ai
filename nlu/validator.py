@@ -162,39 +162,39 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # Toggle Action과 Redundancy를 명확히 구분
+    # [수정] 프롬프트 보강: 타겟 파트와 상태값을 정확히 매칭하도록 지시
     system_prompt = (
         "You are the 'Safety Brain' of a smart car.\n"
-        "Analyze the User Request against the Vehicle Status.\n"
+        "Your goal: Check if the user's request is valid, safe, and not redundant.\n"
         "\n"
-        "[Mapping Note]\n"
-        "- 'steering_wheel' request -> check 'steering_wheel_heat' status.\n"
-        "- 'seat_heater' request -> check 'seat_heater_driver' (or others).\n"
-        "- 'trunk'/'frunk' request -> check 'trunk'/'frunk' status AND 'gear'.\n"
+        "[IMPORTANT STRATEGY]\n"
+        "1. Identify the 'target_part' in the request (e.g. 'trunk', 'window').\n"
+        "2. Look up the *EXACT* key in 'Vehicle Status' for that part.\n"
+        "   - Do NOT get confused by other parts (e.g. don't look at 'window' if user asks for 'trunk').\n"
+        "3. Compare the Request vs Current Value.\n"
+        "\n"
+        "[Mapping Guide]\n"
+        "- 'trunk' request -> Check 'trunk' status.\n"
+        "- 'steering_wheel' request -> Check 'steering_wheel_heat' status.\n"
+        "- 'seat_heater' request -> Check 'seat_heater_driver' (or others).\n"
         "\n"
         "[Rules]\n"
-        "1. **Status Check (Crucial)**:\n"
-        "   - Request 'Open' + Status 'Closed' => **Safe/Execute** (Normal).\n"
-        "   - Request 'Close' + Status 'Open' => **Safe/Execute** (Normal).\n"
-        "   - Request 'On' + Status 'Off' => **Safe/Execute** (Normal).\n"
-        "   - Request 'Off' + Status 'On' => **Safe/Execute** (Normal).\n"
-        "   - Request 'Open' + Status 'Open' => **Redundancy/Reject** ('Already open').\n"
-        "   - Request 'Close' + Status 'Closed' => **Redundancy/Reject** ('Already closed').\n"
-        "   - Request 'On' + Status 'On' => **Redundancy/Reject** ('Already on').\n"
-        "   - Request 'Off' + Status 'Off' => **Redundancy/Reject** ('Already off').\n"
+        "1. **Status Check (Redundancy)**:\n"
+        "   - IF Request 'Open' AND Current 'Closed' => **Safe/Execute**.\n"
+        "   - IF Request 'Close' AND Current 'Open' => **Safe/Execute**.\n"
+        "   - IF Request 'On' AND Current 'Off' => **Safe/Execute**.\n"
+        "   - IF Request 'Off' AND Current 'On' => **Safe/Execute**.\n"
+        "   - IF Request matches Current (e.g. Open & Open) => **Redundancy/Reject**.\n"
         "\n"
         "2. **Safety Risk (Gear Check)**:\n"
-        "   - Opening trunk/frunk/door is **SAFE** ONLY IF gear is 'P' (Park).\n"
+        "   - Opening trunk/frunk/door is **SAFE** ONLY IF gear is 'P'.\n"
         "   - If gear is D, R, N -> **REJECT** (Unsafe).\n"
-        "\n"
-        "3. **Context Conflict**:\n"
-        "   - Heater when hot (>28C) or AC when cold (<15C) => **Confirm Conflict**.\n"
         "\n"
         "Return JSON only:\n"
         "{\n"
         '  "is_safe": bool,\n'
         '  "response_type": "execute" | "confirm_conflict" | "reject",\n'
-        '  "reason_kor": "Short explanation in Korean."\n'
+        '  "reason_kor": "Explain based on the exact current value (e.g. 현재 트렁크가 닫혀있으므로...)"\n'
         "}"
     )
 
@@ -306,7 +306,7 @@ def validate_and_build_action(
             new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
             return action, new_state
 
-        # [상태 동기화 수정: Meta(현실)가 Saved(기억)을 덮어써야 함]
+        # [상태 동기화: Meta(현실)가 Saved(기억)을 덮어써야 함]
         meta_status = meta.get("vehicle_status") or {}
         saved_status = state.get("vehicle_status") or {}
         
@@ -345,11 +345,12 @@ def validate_and_build_action(
             new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
             return action, new_state
 
+        # [Fix] 톤 가이드 초기화 (navigate_to 등 다른 인텐트를 위해 미리 선언)
+        tone_guidance = "neutral"
+        effective_mode = ""
+
         # [Step 2] Agentic Safety Check (LLM Reasoning)
         if intent in ["control_hvac", "control_hardware"]:
-            tone_guidance = "neutral"
-            effective_mode = ""
-
             if intent == "control_hardware":
                 part_slot = str(_slot_value(slots, "target_part") or "")
                 if part_slot in ["seat_heater", "steering_wheel"]:
@@ -444,6 +445,11 @@ def validate_and_build_action(
                 base_text = f"히터를 켜서 따뜻하게 합니다."
             else:
                 base_text = f"공조장치를 {ko_act}."
+        
+        # [추가] 내비게이션 등 기타 인텐트 처리
+        elif intent == "navigate_to":
+            dest = str(params.get("destination") or "")
+            base_text = f"{dest}로 안내를 시작합니다."
 
         facts = dict(params)
         
