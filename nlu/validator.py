@@ -13,6 +13,7 @@ from domain.kiosk.policy import (
     default_catalog_repo,
 )
 from domain.driving.policy import build_vehicle_command, check_action_validity
+from domain.driving.state_manager import VehicleStateManager
 
 # LLM Reasoning을 위한 클라이언트 임포트
 from nlu.llm_answer_client import answer_with_openai
@@ -86,8 +87,6 @@ _ITEM_NOISE_PATTERNS: List[Tuple[str, str]] = [
     (r"(세\s*개|3\s*개|세\s*잔|3\s*잔)\b", " "),
     (r"(주세요|주문|부탁|할게(요)?|줘|주실래요|좀)\b", " "),
 ]
-_TEMP_WORDS = ["아이스", "차가운", "시원한", "iced", "ice", "뜨거운", "따뜻한", "따듯", "hot", "핫"]
-_SIZE_WORDS = ["스몰", "small", "미디움", "medium", "라지", "large", "작은", "중간", "큰", "보통", "S", "M", "L"]
 
 
 def _compact_spaces(s: str) -> str:
@@ -105,17 +104,7 @@ def _recover_item_name_candidates(item_name: Any, option_groups: Dict[str, Any])
         s = re.sub(pat, rep, s, flags=re.IGNORECASE)
     s = _compact_spaces(s)
     if s and s not in cands: cands.append(s)
-    s2 = raw
-    if option_groups.get("temperature") is not None:
-        for w in _TEMP_WORDS: s2 = re.sub(rf"\b{re.escape(w)}\b", " ", s2, flags=re.IGNORECASE)
-    if option_groups.get("size") is not None:
-        for w in _SIZE_WORDS: s2 = re.sub(rf"\b{re.escape(w)}\b", " ", s2, flags=re.IGNORECASE)
-    s2 = _compact_spaces(s2)
-    if s2 and s2 not in cands: cands.append(s2)
-    out: List[str] = []
-    for x in cands:
-        if len(x) >= 2: out.append(x)
-    return out
+    return [x for x in cands if len(x) >= 2]
 
 
 def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
@@ -128,14 +117,13 @@ def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, An
         "last_bot_action": state.get("last_bot_action"),
     }
     
-    # [Fix] Education Context Fields 누락 수정
+    # [Context Fix] 교육 관련 메타 데이터 필드 누락 방지
     safe_meta = {
         "locale": meta.get("locale"),
         "timezone": meta.get("timezone"),
         "device_type": meta.get("device_type"),
         "mode": meta.get("mode"),
         "input_type": meta.get("input_type"),
-        # 교육 관련 필드 추가
         "user_level": meta.get("user_level"),
         "user_age_group": meta.get("user_age_group"),
         "subject": meta.get("subject"),
@@ -163,129 +151,41 @@ def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, An
         },
     }
 
-# Agentic Safety & Logic Check
+
 def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dict[str, Any], current_status: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    차량 제어 요청에 대해 현재 상태(Context)와 대조하여 안전하고 논리적인지 판단.
-    Rule-Base 대신 LLM이 판단 (예: 33도에 히터 켜기 -> Unsafe, 이미 켜져있음 -> Redundancy)
-    """
-    user_message = meta.get("user_message_preview") or "사용자 요청"
+    """Agentic Safety: LLM을 활용한 논리적 위험 및 중복 판단"""
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] 프롬프트 보강: 타겟 파트와 상태값을 정확히 매칭하도록 지시
     system_prompt = (
         "You are the 'Safety Brain' of a smart car.\n"
-        "Your goal: Check if the user's request is valid, safe, and not redundant.\n"
+        "Analyze the User Request against the Vehicle Status.\n"
         "\n"
-        "[IMPORTANT STRATEGY]\n"
-        "1. Identify the 'target_part' in the request (e.g. 'trunk', 'window').\n"
-        "2. Look up the *EXACT* key in 'Vehicle Status' for that part.\n"
-        "   - Do NOT get confused by other parts (e.g. don't look at 'window' if user asks for 'trunk').\n"
-        "3. Compare the Request vs Current Value.\n"
-        "\n"
-        "[Mapping Guide]\n"
-        "- 'trunk' request -> Check 'trunk' status.\n"
-        "- 'steering_wheel' request -> Check 'steering_wheel_heat' status.\n"
-        "- 'seat_heater' request -> Check 'seat_heater_driver' (or others).\n"
+        "[Mapping Note]\n"
+        "- 'steering_wheel' request -> check 'steering_wheel_heat' status.\n"
+        "- 'trunk' request -> check 'trunk' status.\n"
         "\n"
         "[Rules]\n"
         "1. **Status Check (Redundancy)**:\n"
-        "   - IF Request 'Open' AND Current 'Closed' => **Safe/Execute**.\n"
-        "   - IF Request 'Close' AND Current 'Open' => **Safe/Execute**.\n"
-        "   - IF Request 'On' AND Current 'Off' => **Safe/Execute**.\n"
-        "   - IF Request 'Off' AND Current 'On' => **Safe/Execute**.\n"
-        "   - IF Request matches Current (e.g. Open & Open) => **Redundancy/Reject**.\n"
+        "   - Compare the Request Action vs Current Status Value.\n"
+        "   - If they are already in that state (e.g., Request 'Open' but already 'Open'), it is a Redundancy.\n"
         "\n"
         "2. **Safety Risk (Gear Check)**:\n"
-        "   - Opening trunk/frunk/door is **SAFE** ONLY IF gear is 'P'.\n"
-        "   - If gear is D, R, N -> **REJECT** (Unsafe).\n"
+        "   - Opening trunk/frunk/door is SAFE only if gear is 'P'.\n"
+        "   - If gear is D, R, or N, it is UNSAFE.\n"
         "\n"
         "3. **Context Conflict**:\n"
-        "   - Heater when hot (>28C) or AC when cold (<15C) => **Confirm Conflict**.\n"
+        "   - e.g., Heater when outside is very hot (>28C).\n"
         "\n"
-        "Return JSON only:\n"
-        "{\n"
-        '  "is_safe": bool,\n'
-        '  "response_type": "execute" | "confirm_conflict" | "reject",\n'
-        '  "reason_kor": "Explain based on the exact current value (e.g. 현재 트렁크가 닫혀있으므로...)"\n'
-        "}"
+        "Return JSON only: { 'is_safe': bool, 'response_type': 'execute'|'confirm_conflict'|'reject', 'reason_kor': str }"
     )
 
-    user_prompt = (
-        f"Vehicle Status: {json.dumps(current_status, ensure_ascii=False)}\n"
-        f"User Request Intent: {intent}\n"
-        f"Request Slots: {json.dumps(simple_slots, ensure_ascii=False)}\n"
-    )
+    user_prompt = f"Vehicle Status: {json.dumps(current_status)}\nRequest Slots: {json.dumps(simple_slots)}"
 
     try:
-        resp_str = answer_with_openai(
-            user_message=user_prompt,
-            system_prompt=system_prompt,
-            model="gpt-4o-mini",
-            temperature=0.0
-        )
-        clean_json = re.sub(r"```json|```", "", resp_str).strip()
-        result = json.loads(clean_json)
-        return result
-    except Exception as e:
-        log_event(None, "safety_check_error", {"error": str(e)})
+        resp_str = answer_with_openai(user_message=user_prompt, system_prompt=system_prompt, model="gpt-4o-mini", temperature=0.0)
+        return json.loads(re.sub(r"```json|```", "", resp_str).strip())
+    except Exception:
         return {"is_safe": True, "response_type": "execute", "reason_kor": ""}
-
-# 상태 시뮬레이터: 성공한 액션을 상태에 반영
-def _update_vehicle_status_simulation(current_status: Dict[str, Any], intent: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    new_status = dict(current_status)
-    
-    # 맵핑: Action -> Value
-    act_map = {
-        "open": "open", "close": "closed",
-        "on": "on", "off": "off",
-        "lock": "locked", "unlock": "unlocked"
-    }
-    
-    if intent == "control_hardware":
-        part = str(params.get("part") or "")
-        act = str(params.get("action") or "")
-        detail = str(params.get("location_detail") or "")
-        val = act_map.get(act)
-        
-        if val:
-            if part == "sunroof": new_status["sunroof"] = val
-            elif part == "charge_port": new_status["charge_port"] = val
-            elif part == "trunk": new_status["trunk"] = val
-            elif part == "frunk": new_status["frunk"] = val
-            elif part == "door_lock": new_status["door_lock"] = val
-            elif part == "window":
-                new_status["window_driver"] = val
-                new_status["window_passenger"] = val
-                new_status["window_rear_left"] = val
-                new_status["window_rear_right"] = val
-            elif part == "seat_heater":
-                if detail in ["driver", "front", ""]: new_status["seat_heater_driver"] = val
-                if detail in ["passenger", "front", ""]: new_status["seat_heater_passenger"] = val
-                if detail in ["rear", "rear_left", "all"]: new_status["seat_heater_rear_left"] = val
-                if detail in ["rear", "rear_right", "all"]: new_status["seat_heater_rear_right"] = val
-            elif part == "seat_ventilation":
-                if detail in ["driver", "front", ""]: new_status["seat_ventilation_driver"] = val
-                if detail in ["passenger", "front", ""]: new_status["seat_ventilation_passenger"] = val
-            elif part == "steering_wheel":
-                new_status["steering_wheel_heat"] = val
-            elif part == "light":
-                new_status["light_head"] = val
-            elif part == "wiper":
-                new_status["wiper_front"] = val
-
-    elif intent == "control_hvac":
-        act = str(params.get("action") or "")
-        mode = str(params.get("hvac_mode") or "")
-        temp = params.get("target_temp")
-        
-        if act == "on": new_status["hvac_power"] = "on"
-        elif act == "off": new_status["hvac_power"] = "off"
-        
-        if mode: new_status["hvac_mode"] = mode
-        if temp: new_status["target_temp"] = temp
-        
-    return new_status
 
 
 def validate_and_build_action(
@@ -302,12 +202,9 @@ def validate_and_build_action(
     message_key_fail = "result.fail.generic"
 
     if domain == "driving":
-        # 1. 잡담(General Chat)
         if intent == "general_chat":
-            user_query = str(_slot_value(slots, "query") or "")
-            if not user_query: user_query = "대화"
-            
-            action = {
+            user_query = str(_slot_value(slots, "query") or "대화")
+            return {
                 "reply": {
                     "action_type": "answer",
                     "text": user_query,
@@ -315,334 +212,163 @@ def validate_and_build_action(
                     "message_key_ok": f"result.{domain}.{intent}",
                     "payload": {"intent": intent, "status": "general_chat", "query": user_query}
                 }
-            }
-            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
-            return action, new_state
+            }, _merge_state(state, {"current_domain": domain, "active_intent": intent})
 
-        # [상태 동기화: Meta(현실)가 Saved(기억)을 덮어써야 함]
+        # [상태 동기화: StateManager 활용]
         meta_status = meta.get("vehicle_status") or {}
         saved_status = state.get("vehicle_status") or {}
-        
-        # 기본적으로 기억(Saved)을 가져오되, 메타(Meta)가 있다면 그것이 최신이므로 덮어씀
-        current_status = dict(saved_status)
-        current_status.update(meta_status)
+        current_status = VehicleStateManager.sync_status(saved_status, meta_status)
 
-        # [Step 1] Hardware Support Check (우선순위 높임)
+        # 1. 정책 및 안전 검증
         supported_features = meta.get("supported_features") 
         conflict_reason = check_action_validity(intent, slots, current_status, supported_features)
 
         if conflict_reason == "feature_not_supported":
-            action = {
+            return {
                 "reply": {
                     "action_type": "answer",
                     "text": "지원하지 않는 기능입니다.", 
-                    "message_key": "result.driving.conflict.feature_not_supported", 
                     "ui_hints": {"domain": domain, "intent": intent, "status": "unsupported"},
                     "payload": {"intent": intent, "status": "unsupported"}
                 }
-            }
-            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
-            return action, new_state
+            }, _merge_state(state, {"current_domain": domain, "active_intent": intent})
         
-        # [New] 주행 중 안전 차단 (Unsafe Driving)
         elif conflict_reason == "unsafe_driving":
-            action = {
+            return {
                 "reply": {
                     "action_type": "answer",
                     "text": "주행 중에는 해당 기능을 사용할 수 없습니다.",
                     "ui_hints": {"domain": domain, "intent": intent, "status": "rejected"},
-                    "message_key_ok": "result.driving.reject", 
-                    "payload": {"status": "rejected", "reasoning": "주행 중 안전을 위해 제한된 기능입니다."}
+                    "payload": {"status": "rejected", "reasoning": "주행 중 안전 차단"}
                 }
-            }
-            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
-            return action, new_state
+            }, _merge_state(state, {"current_domain": domain, "active_intent": intent})
 
-        # [Tone Init]
+        # 2. 톤 가이드 및 LLM 안전 검사
         tone_guidance = "neutral"
-        effective_mode = ""
-
-        # [Step 2] Agentic Safety Check (LLM Reasoning)
-        if intent in ["control_hvac", "control_hardware"]:
-            if intent == "control_hardware":
-                part_slot = str(_slot_value(slots, "target_part") or "")
-                if part_slot in ["seat_heater", "steering_wheel"]:
-                    tone_guidance = "warm"
-                elif part_slot in ["seat_ventilation"]:
-                    tone_guidance = "cool"
-            
-            if tone_guidance == "neutral":
-                if intent == "control_hvac":
-                    slot_mode = str(_slot_value(slots, "hvac_mode") or "").lower().strip()
-                    effective_mode = slot_mode
-                
-                if not effective_mode:
-                    effective_mode = str(current_status.get("hvac_mode") or "").lower().strip()
-                
-                if effective_mode in ["cool", "ac"]: tone_guidance = "cool"
-                elif effective_mode in ["heat", "heater"]: tone_guidance = "warm"
-            
-            safety_result = _check_driving_safety_with_llm(intent, slots, meta, current_status)
-            
-            # (A) 갈등/확인 필요
-            if safety_result.get("response_type") == "confirm_conflict":
-                reason = safety_result.get("reason_kor") or "현재 상황과 맞지 않는 요청입니다."
-                action = {
-                    "reply": {
-                        "action_type": "answer",
-                        "text": f"{reason} 그래도 진행할까요?", 
-                        "ui_hints": {"domain": domain, "intent": intent, "status": "conflict_confirm"},
-                        "message_key_ok": f"result.driving.conflict",
-                        "payload": {
-                            "intent": intent, 
-                            "status": "conflict_confirm", 
-                            "reasoning": reason, 
-                            "is_safe": False,
-                            "tone_guidance": tone_guidance, 
-                            "hvac_mode": effective_mode
-                        }
-                    }
+        if intent == "control_hardware":
+            part_slot = str(_slot_value(slots, "target_part") or "")
+            if part_slot in ["seat_heater", "steering_wheel"]: tone_guidance = "warm"
+            elif part_slot == "seat_ventilation": tone_guidance = "cool"
+        
+        safety_result = _check_driving_safety_with_llm(intent, slots, meta, current_status)
+        if safety_result.get("response_type") in ["confirm_conflict", "reject"]:
+            status = "conflict_confirm" if safety_result["response_type"] == "confirm_conflict" else "rejected"
+            return {
+                "reply": {
+                    "action_type": "answer",
+                    "text": safety_result.get("reason_kor", "처리할 수 없는 요청입니다."),
+                    "ui_hints": {"domain": domain, "intent": intent, "status": status},
+                    "payload": {"intent": intent, "status": status, "tone_guidance": tone_guidance}
                 }
-                new_state = _merge_state(state, {"debug_last_reason": "llm_safety_conflict"})
-                return action, new_state
-            
-            # (B) 거절 (Reject - 이미 켜져있음 등)
-            elif safety_result.get("response_type") == "reject":
-                reason = safety_result.get("reason_kor") or "수행할 수 없는 요청입니다."
-                action = {
-                    "reply": {
-                        "action_type": "answer",
-                        "text": reason,
-                        "ui_hints": {"domain": domain, "intent": intent, "status": "rejected"},
-                        "message_key_ok": f"result.driving.reject",
-                        "payload": {
-                            "status": "rejected", 
-                            "reasoning": reason,
-                            "tone_guidance": tone_guidance,
-                            "hvac_mode": effective_mode
-                        }
-                    }
-                }
-                return action, _merge_state(state, {"debug_last_reason": "llm_safety_reject"})
+            }, _merge_state(state, {"debug_last_reason": f"llm_safety_{status}"})
 
-        # --- [Step 3] Success Execution ---
+        # 3. 명령 빌드 및 상태 시뮬레이션
         command_payload = build_vehicle_command(intent, slots)
         params = command_payload.get("params", {})
         
-        # [상태 업데이트]
-        updated_status = _update_vehicle_status_simulation(current_status, intent, params)
-
-        base_text = "요청을 처리합니다."
-        final_tone = tone_guidance
-
-        if intent == "control_hvac":
-             cmd_mode = str(params.get("hvac_mode") or "").lower().strip()
-             check_mode = cmd_mode if cmd_mode else effective_mode
-             if check_mode in ["cool", "ac"]: final_tone = "cool"
-             elif check_mode in ["heat", "heater"]: final_tone = "warm"
-
         if intent == "control_hardware":
-            part = str(params.get("part") or "")
-            act = str(params.get("action") or "")
-            ko_part = _KO_PART.get(part, part)
-            ko_act = _KO_ACTION.get(act, act)
+            updated_status = VehicleStateManager.simulate_action(
+                current_status, params.get("part"), params.get("action"), params.get("location_detail", "")
+            )
+            ko_part = _KO_PART.get(params.get("part"), params.get("part"))
+            ko_act = _KO_ACTION.get(params.get("action"), params.get("action"))
             base_text = f"{ko_part} {ko_act}."
-        
         elif intent == "control_hvac":
-            act = str(params.get("action") or "")
-            ko_act = _KO_ACTION.get(act, act)
-            
-            if final_tone == "cool":
-                base_text = f"에어컨을 켜서 시원하게 합니다."
-            elif final_tone == "warm":
-                base_text = f"히터를 켜서 따뜻하게 합니다."
-            else:
-                base_text = f"공조장치를 {ko_act}."
-        
+            updated_status = current_status
+            base_text = "공조 장치를 조절합니다."
         elif intent == "navigate_to":
-            dest = str(params.get("destination") or "")
-            base_text = f"{dest}로 안내를 시작합니다."
+            updated_status = current_status
+            base_text = f"{params.get('destination')}로 안내를 시작합니다."
+        else:
+            updated_status = current_status
+            base_text = "요청을 처리했습니다."
 
         facts = dict(params)
-        
-        if intent == "control_hardware" and facts.get("part") == "steering_wheel":
-            facts["part"] = "steering_wheel_heater"
-            
-        facts["intent"] = intent
-        facts["status"] = "success"
+        facts.update({"intent": intent, "status": "success"})
 
-        action = {
+        return {
             "reply": {
                 "action_type": "vehicle_action",
                 "text": base_text, 
                 "command": command_payload,
-                "ui_hints": {
-                    "domain": domain, "intent": intent, "tone_guidance": final_tone
-                },
+                "ui_hints": {"domain": domain, "intent": intent, "tone_guidance": tone_guidance},
                 "message_key_ok": message_key_ok,
-                "payload": facts, 
+                "payload": facts
             }
-        }
-        
-        # [State 저장]
-        new_state = _merge_state(state, {
-            "current_domain": domain, 
-            "active_intent": intent,
-            "vehicle_status": updated_status
-        })
-        return action, new_state
+        }, _merge_state(state, {"current_domain": domain, "active_intent": intent, "vehicle_status": updated_status})
 
-    # [Kiosk / Add Item] (기존 유지)
+    # [Kiosk Domain]
     if domain == "kiosk" and intent == "add_item":
         item_name = _slot_value(slots, "item_name")
         quantity = _slot_value(slots, "quantity") or 1
         option_groups_raw = _slot_value(slots, "option_groups")
         option_groups = _normalize_option_groups(option_groups_raw)
-        if "temperature" in option_groups:
-            option_groups["temperature"] = _normalize_temperature_value(option_groups.get("temperature"))
         store_id = meta.get("store_id")
         kiosk_type = meta.get("kiosk_type")
 
         if not store_id or not kiosk_type or not item_name:
-            action = {
+            return {
                 "reply": {
                     "action_type": "answer",
-                    "text": "메뉴 정보를 확인하지 못했어요. 다시 한 번 말씀해 주세요.",
+                    "text": "메뉴 정보를 확인하지 못했어요.",
                     "ui_hints": {"domain": domain, "intent": intent},
-                    "message_key_ok": message_key_ok,
-                    "message_key_fail": message_key_fail,
                 }
-            }
-            new_state = _merge_state(state, {"debug_last_reason": "missing_meta_or_item_name"})
-            return action, new_state
+            }, _merge_state(state, {"debug_last_reason": "missing_meta_or_item_name"})
 
-        if catalog is None:
-            catalog = default_catalog_repo()
-
+        if catalog is None: catalog = default_catalog_repo()
         item = catalog.get_item_by_name(store_id=store_id, kiosk_type=kiosk_type, name=item_name)
-        used_name = item_name
-        recovered = False
+        
         if not item:
-            cands = _recover_item_name_candidates(item_name, option_groups)
-            for cand in cands:
-                it2 = catalog.get_item_by_name(store_id=store_id, kiosk_type=kiosk_type, name=cand)
-                if it2:
-                    item = it2
-                    used_name = cand
-                    recovered = True
-                    break
-            if log_event and trace_id:
-                log_event(trace_id, "validator_item_lookup_retry", {"original": item_name, "candidates": cands, "recovered": recovered})
-
-        if not item:
-            action = {
+            return {
                 "reply": {
                     "action_type": "answer",
-                    "text": f"'{item_name}' 메뉴를 찾지 못했어요. 다른 메뉴를 선택해 주세요.",
+                    "text": f"'{item_name}' 메뉴를 찾지 못했어요.",
                     "ui_hints": {"domain": domain, "intent": intent},
-                    "message_key_ok": message_key_ok,
-                    "message_key_fail": message_key_fail,
                 }
-            }
-            new_state = _merge_state(state, {"debug_last_reason": "menu_not_found"})
-            return action, new_state
+            }, _merge_state(state, {"debug_last_reason": "menu_not_found"})
 
-        slots_for_policy = dict(slots or {})
-        if recovered:
-            slots_for_policy["item_name"] = {"value": used_name, "confidence": 0.6}
-
-        required_groups = get_required_option_groups_for_add_item(req={"meta": meta}, slots=slots_for_policy, catalog=catalog)
+        required_groups = get_required_option_groups_for_add_item(req={"meta": meta}, slots=slots, catalog=catalog)
         missing_group = find_missing_required_option_group(required_groups=required_groups, option_groups_slot=option_groups)
 
         if missing_group:
-            prompt_map = {"temperature": "뜨거운/아이스 중 어떤 걸로 드릴까요?", "size": "사이즈는 어떤 걸로 드릴까요? (S/M/L)"}
-            text = prompt_map.get(missing_group, f"{missing_group} 옵션을 선택해 주세요.")
-            choices = None
-            if item.option_groups:
-                choices = item.option_groups.get(missing_group)
-            action = {
+            choices = item.option_groups.get(missing_group) if item.option_groups else None
+            return {
                 "reply": {
                     "action_type": "ask_option_group",
-                    "text": text,
+                    "text": f"{missing_group} 옵션을 선택해 주세요.",
                     "ui_hints": {"domain": domain, "intent": intent, "expect_option_group": missing_group, "choices": choices},
                 }
-            }
-            slots_min = {
-                "item_name": slots.get("item_name"),
-                "quantity": slots.get("quantity"),
-                "option_groups": {"value": dict(option_groups), "confidence": 0.9},
-                "notes": slots.get("notes"),
-            }
-            new_state = _merge_state(
-                state,
-                {
-                    "current_domain": domain,
-                    "active_intent": intent,
-                    "slots": slots_min,
-                    "pending_option_group": missing_group,
-                    "pending_option_group_choices": choices,
-                    "last_bot_action": "ask_option_group",
-                    "debug_last_reason": f"missing_option_group:{missing_group}",
-                },
-            )
-            return action, new_state
+            }, _merge_state(state, {"pending_option_group": missing_group})
 
-        action = {
+        return {
             "reply": {
                 "action_type": "add_to_cart",
-                "text": f"{item.name} {quantity}개를 장바구니에 담았어요.",
+                "text": f"{item.name} 장바구니에 담았습니다.",
                 "ui_hints": {"domain": domain, "intent": intent},
-                "payload": {"item_id": item.item_id, "name": item.name, "price": item.price, "quantity": quantity, "option_groups": option_groups},
+                "payload": {"item_id": item.item_id, "name": item.name, "quantity": quantity, "option_groups": option_groups},
             }
-        }
-        new_state = _merge_state(
-            state,
-            {
-                "current_domain": domain,
-                "active_intent": None,
-                "slots": {},
-                "last_bot_action": "add_to_cart",
-                "debug_last_reason": "added_to_cart",
-                "pending_option_group": None,
-                "pending_option_group_choices": None,
-            },
-        )
-        return action, new_state
+        }, _merge_state(state, {"active_intent": None, "slots": {}})
 
     # [Education Domain]
     if domain == "education":
-        new_state = _merge_state(
-            state,
-            {
-                "current_domain": "education",
-                "active_intent": intent,
-                "slots": slots or {},
-                "last_bot_action": "answer",
-                "debug_last_reason": f"edu:llm_generate:{intent}",
-            },
-        )
+        new_state = _merge_state(state, {"current_domain": "education", "active_intent": intent})
         llm_task = _edu_make_llm_task(intent=intent, slots=slots, meta=meta, state=new_state)
-        action = {
+        return {
             "reply": {
                 "text": "처리할게요.",
                 "action_type": "answer",
                 "ui_hints": {"domain": domain, "intent": intent},
                 "message_key_ok": message_key_ok,
-                "message_key_fail": message_key_fail,
             },
             "llm_task": llm_task,
-        }
-        return action, new_state
+        }, new_state
 
     # [Fallback]
-    action = {
+    return {
         "reply": {
-            "text": TEMPLATES.get(message_key_ok, "") or "처리할게요.",
+            "text": "처리할게요.",
             "action_type": "answer",
             "ui_hints": {"domain": domain, "intent": intent},
             "message_key_ok": message_key_ok,
-            "message_key_fail": message_key_fail,
         }
-    }
-    new_state = _merge_state(state, {"debug_last_reason": "action:planned"})
-    return action, new_state
+    }, _merge_state(state, {"debug_last_reason": "fallback"})
