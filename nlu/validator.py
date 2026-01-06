@@ -171,29 +171,59 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] 프롬프트: REJECT 규칙 우선 순위 상향 + HVAC Power 명시 + Table Format
+    # [수정] Python 레벨 힌트 생성 로직 정교화
+    target_part = simple_slots.get("target_part")
+    mapped_key_hint = ""
+    
+    if intent == "control_hvac":
+        mapped_key_hint = "-> Check Status Key: 'hvac_power'"
+    elif intent == "control_hardware":
+        if target_part == "seat_heater":
+            mapped_key_hint = "-> Check Status Key: 'seat_heater_driver' (Default)"
+        elif target_part == "seat_ventilation":
+            mapped_key_hint = "-> Check Status Key: 'seat_ventilation_driver' (Default)"
+        elif target_part:
+            # [Fix] 일반 하드웨어 키 매핑 정교화
+            # 상태값에 해당 키가 그대로 있으면 그걸 쓰라고 명시
+            if target_part in current_status:
+                mapped_key_hint = f"-> Check Status Key: '{target_part}'"
+            # 윈도우/도어락처럼 _driver가 붙는 경우
+            elif f"{target_part}_driver" in current_status:
+                mapped_key_hint = f"-> Check Status Key: '{target_part}_driver'"
+            # 매핑 실패 시 힌트 주지 않음 (LLM 판단에 맡김)
+
+    # [수정] 프롬프트: 힌트 반영 및 규칙 단순화
+    # [수정] 프롬프트: 행동 중심(Action-Oriented) 로직으로 개편 + 예시 강화
     system_prompt = (
-        "You are the 'Safety Brain' of a smart car. Compare the user's Request vs Current Status.\n"
+        "You are the 'Safety Brain' of a smart car. Check if the user's request is valid based on current status.\n"
         "\n"
-        "[LOGIC TABLE - FOLLOW STRICTLY IN ORDER]\n"
-        "1. **HVAC Power Rule** (If intent='control_hvac' & action='on'/'off'):\n"
-        "   - **REJECT CONDITION**: Request 'Off' + Current 'Off' => **REJECT** (Already off)\n"
-        "   - **REJECT CONDITION**: Request 'On'  + Current 'On' + (No Mode/Temp Change) => **REJECT** (Already on)\n"
-        "   - Request 'Off' + Current 'On'  => **EXECUTE** (Turn off)\n"
-        "   - Request 'On'  + Current 'Off' => **EXECUTE** (Turn on)\n"
-        "   - Request 'On'  + Current 'On' + (Mode/Temp Change) => **EXECUTE** (Mode Change)\n"
+        "[CORE LOGIC - CHECK ACTION vs STATUS]\n"
+        "1. **HVAC Rule** (Key: 'hvac_power'):\n"
+        "   - Action 'On' + Status 'Off' => **EXECUTE** (Turn On)\n"
+        "   - Action 'Off' + Status 'On' => **EXECUTE** (Turn Off)\n"
+        "   - Action 'On' + Status 'On'  => **EXECUTE** (If Mode/Temp change) / **REJECT** (If exact same)\n"
+        "   - Action 'Off' + Status 'Off' => **REJECT** (Already Off)\n"
         "\n"
-        "2. **General Hardware Rule** (Window, Trunk, Lock, etc.):\n"
-        "   - **REJECT CONDITION**: Request 'Open'  + Current 'Open'   => **REJECT**\n"
-        "   - **REJECT CONDITION**: Request 'Close' + Current 'Closed' => **REJECT**\n"
-        "   - **REJECT CONDITION**: Request 'Lock'  + Current 'Locked'   => **REJECT**\n"
-        "   - Request 'Open'  + Current 'Closed' => **EXECUTE**\n"
-        "   - Request 'Close' + Current 'Open'   => **EXECUTE**\n"
-        "   - Request 'Lock'  + Current 'Unlocked' => **EXECUTE**\n"
+        "2. **Seat Feature Rule** (Heater/Ventilation):\n"
+        "   - **Target Key**: Check 'seat_heater_driver' (for heater) OR 'seat_ventilation_driver' (for vent) by default.\n"
+        "   - Action 'On' + Status 'Off' => **EXECUTE**\n"
+        "   - Action 'Off' + Status 'On' => **EXECUTE**\n"
+        "   - Action 'On' + Status 'On'  => **REJECT** (Already On)\n"
+        "   - Action 'Off' + Status 'Off' => **REJECT** (Already Off)\n"
         "\n"
-        "[Mapping Instructions]\n"
-        "- For HVAC Power, look at key: 'hvac_power' (Not hvac_mode).\n"
-        "- For Window/Trunk, look at the specific key (e.g. 'window_driver').\n"
+        "3. **General Hardware Rule** (Trunk, Window, Sunroof, Lock, etc.):\n"
+        "   - **Target Key**: Check the exact key (e.g. 'trunk', 'sunroof', 'window_driver').\n"
+        "   - Action 'Open'  + Status 'Closed' => **EXECUTE**\n"
+        "   - Action 'Close' + Status 'Open'   => **EXECUTE**\n"
+        "   - Action 'Lock'  + Status 'Unlocked' => **EXECUTE**\n"
+        "   - Action 'Unlock' + Status 'Locked'   => **EXECUTE**\n"
+        "   - Action 'Open'  + Status 'Open'   => **REJECT** (Already Open)\n"
+        "   - Action 'Close' + Status 'Closed' => **REJECT** (Already Closed)\n"
+        "\n"
+        "[EXAMPLES]\n"
+        "- Request: 'Close Trunk', Status: {'trunk': 'open'} -> **EXECUTE** (Valid close)\n"
+        "- Request: 'Open Trunk',  Status: {'trunk': 'open'} -> **REJECT** (Already open)\n"
+        "- Request: 'Turn off Seat Heater', Status: {'seat_heater_driver': 'on'} -> **EXECUTE** (Valid off)\n"
         "\n"
         "Return JSON only:\n"
         "{\n"
@@ -204,10 +234,10 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     )
 
     user_prompt = (
-        f"Recent Conversation History:\n{history}\n\n"
         f"Vehicle Status: {json.dumps(current_status, ensure_ascii=False)}\n"
         f"User Request Intent: {intent}\n"
         f"Request Slots: {json.dumps(simple_slots, ensure_ascii=False)}\n"
+        f"**[System Hint] {mapped_key_hint}**\n"  # [핵심] 여기에 힌트 주입
     )
 
     try:
