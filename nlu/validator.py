@@ -128,13 +128,14 @@ def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, An
         "last_bot_action": state.get("last_bot_action"),
     }
     
-    # Education Context Fields 누락 수정
+    # [Fix] Education Context Fields 누락 수정
     safe_meta = {
         "locale": meta.get("locale"),
         "timezone": meta.get("timezone"),
         "device_type": meta.get("device_type"),
         "mode": meta.get("mode"),
         "input_type": meta.get("input_type"),
+        # 교육 관련 필드 추가
         "user_level": meta.get("user_level"),
         "user_age_group": meta.get("user_age_group"),
         "subject": meta.get("subject"),
@@ -171,7 +172,7 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] Prompt: HVAC 중복 체크 + 실행 규칙(Execution Rules) 추가
+    # [수정] 프롬프트 단순화 및 강력한 논리 주입
     system_prompt = (
         "You are the 'Safety Brain' of a smart car. Validate the user's request against the current vehicle status.\n"
         "\n"
@@ -252,13 +253,21 @@ def _update_vehicle_status_simulation(current_status: Dict[str, Any], intent: st
                 new_status["window_rear_left"] = val
                 new_status["window_rear_right"] = val
             elif part == "seat_heater":
-                if detail in ["driver", "front", ""]: new_status["seat_heater_driver"] = val
-                if detail in ["passenger", "front", ""]: new_status["seat_heater_passenger"] = val
+                if detail in ["driver", "front", ""]: 
+                    new_status["seat_heater_driver"] = val
+                    if val == "on": new_status["seat_ventilation_driver"] = "off" # [Fix] 열선 켜면 통풍 끄기
+                if detail in ["passenger", "front", ""]: 
+                    new_status["seat_heater_passenger"] = val
+                    if val == "on": new_status["seat_ventilation_passenger"] = "off" # [Fix]
                 if detail in ["rear", "rear_left", "all"]: new_status["seat_heater_rear_left"] = val
                 if detail in ["rear", "rear_right", "all"]: new_status["seat_heater_rear_right"] = val
             elif part == "seat_ventilation":
-                if detail in ["driver", "front", ""]: new_status["seat_ventilation_driver"] = val
-                if detail in ["passenger", "front", ""]: new_status["seat_ventilation_passenger"] = val
+                if detail in ["driver", "front", ""]: 
+                    new_status["seat_ventilation_driver"] = val
+                    if val == "on": new_status["seat_heater_driver"] = "off" # [Fix] 통풍 켜면 열선 끄기
+                if detail in ["passenger", "front", ""]: 
+                    new_status["seat_ventilation_passenger"] = val
+                    if val == "on": new_status["seat_heater_passenger"] = "off" # [Fix]
             elif part == "steering_wheel":
                 new_status["steering_wheel_heat"] = val
             elif part == "light":
