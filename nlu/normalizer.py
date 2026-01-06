@@ -34,8 +34,6 @@ def _merge_dict(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     for k, v in (b or {}).items():
         if v is None:
             continue
-        # 슬롯 값이 딕셔너리인데 비어있거나 value가 None인 경우도 체크할 수 있으나
-        # 여기서는 단순 병합
         out[k] = v
     return out
 
@@ -222,9 +220,31 @@ def apply_session_rules(
 
     slots_in = _safe_dict(n.get("slots")) # 현재 턴 슬롯 
     prev_slots = _safe_dict(st.get("slots")) # 이전 턴 슬롯
+    last_domain = _safe_str(st.get("current_domain")).strip()
+
+    # ----------------------------------------------------
+    # [Fix] 도메인 변경 시 슬롯 초기화 (Reset Context)
+    # ----------------------------------------------------
+    # 이전 도메인과 현재 도메인이 다르면, 이전 슬롯을 병합하지 않고
+    # 이번 턴에서 새로 감지된 slots_in만 사용합니다.
+    # 실제 사용 환경에선 도메인이 중간에 변경될 일이 없으나, 
+    # 시연 중에 도메인을 수시로 변경하면서 나올 수 있는 문제 방지를 위해서 추가되었습니다.
+    if domain and last_domain and (domain != last_domain):
+        out = dict(n)
+        out["domain"] = domain
+        out["intent"] = intent
+        out["slots"] = dict(slots_in) # Reset: clean slate
+        
+        if log_event and trace_id:
+            log_event(trace_id, "session_context_reset", {
+                "reason": "domain_changed",
+                "from": last_domain,
+                "to": domain
+            })
+        return out
 
     # ----------------------------
-    # 1. Kiosk 및 기타(education 제외) - 기존 로직 유지
+    # 1. Kiosk 및 기타(education 제외)
     # ----------------------------
     if domain != "education":
         pending_group = _safe_str(st.get("pending_option_group")).strip()

@@ -128,14 +128,13 @@ def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, An
         "last_bot_action": state.get("last_bot_action"),
     }
     
-    # [Fix] Education Context Fields 누락 수정
+    # Education Context Fields 누락 수정
     safe_meta = {
         "locale": meta.get("locale"),
         "timezone": meta.get("timezone"),
         "device_type": meta.get("device_type"),
         "mode": meta.get("mode"),
         "input_type": meta.get("input_type"),
-        # 교육 관련 필드 추가
         "user_level": meta.get("user_level"),
         "user_age_group": meta.get("user_age_group"),
         "subject": meta.get("subject"),
@@ -167,64 +166,39 @@ def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, An
 def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dict[str, Any], current_status: Dict[str, Any], history: str = "") -> Dict[str, Any]:
     """
     차량 제어 요청에 대해 현재 상태(Context)와 대조하여 안전하고 논리적인지 판단.
-    Rule-Base 대신 LLM이 판단 (예: 33도에 히터 켜기 -> Unsafe, 이미 켜져있음 -> Redundancy)
+    Rule-Base 대신 LLM이 판단.
     """
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] "Smart Logic & Efficiency" 규칙 적용
-    # - 에어컨/히터 켜진 상태에서 창문/선루프 개방 시 갈등(Confirm Conflict) 유도
-    # - 와이퍼 작동(비) 중 창문/선루프 개방 시 갈등 유도
-    # - 기존 온도 체크 포함
+    # [수정] Prompt: HVAC 중복 체크 + 실행 규칙(Execution Rules) 추가
     system_prompt = (
-        "You are the 'Safety Brain' of a smart car.\n"
-        "Your goal: Check if the user's request is valid, safe, and not redundant.\n"
+        "You are the 'Safety Brain' of a smart car. Validate the user's request against the current vehicle status.\n"
         "\n"
-        "[IMPORTANT STRATEGY]\n"
-        "1. Identify the 'target_part' in the request (e.g. 'trunk', 'window').\n"
-        "2. Look up the *EXACT* key in 'Vehicle Status' for that part.\n"
-        "   - Do NOT get confused by other parts (e.g. don't look at 'window' if user asks for 'trunk').\n"
-        "3. Compare the Request vs Current Value.\n"
-        "4. Consider the 'Recent Conversation History' to understand context (e.g. user just turned something on).\n"
+        "[CORE LOGIC - DO NOT HALLUCINATE]\n"
+        "1. **Identify Target & Current Value**:\n"
+        "   - Find the exact key in 'Vehicle Status' corresponding to the requested part.\n"
+        "   - Example: Request 'window' + 'driver' -> Check 'window_driver'.\n"
         "\n"
-        "[Mapping Guide]\n"
-        "- 'trunk' request -> Check 'trunk' status.\n"
-        "- 'frunk' request -> Check 'frunk' status.\n"
-        "- 'charge_port' request -> Check 'charge_port' status.\n"
-        "- 'door_lock' request -> Check 'door_lock' status.\n"
-        "- 'sunroof' request -> Check 'sunroof' status.\n"
-        "- 'light' request -> Check 'light_head' status.\n"
-        "- 'wiper' request -> Check 'wiper_front' status.\n"
-        "- 'window' request -> Check 'window_driver', 'window_passenger', etc. (based on location_detail).\n"
-        "- 'steering_wheel' request -> Check 'steering_wheel_heat' status.\n"
-        "- 'seat_heater' request -> Check 'seat_heater_driver' (or others).\n"
-        "- 'seat_ventilation' request -> Check 'seat_ventilation_driver' (or others).\n"
-        "- 'air_conditioner/heater' request -> Check 'hvac_power' and 'hvac_mode'.\n"
+        "2. **Compare Action vs Status**:\n"
+        "   - **CASE A: Request Action == Current Status** (e.g. Request 'Open' but Status is 'open')\n"
+        "     => **REJECT** (Reason: Already in that state).\n"
+        "   - **CASE B: Request Action != Current Status** (e.g. Request 'Open' but Status is 'closed')\n"
+        "     => **EXECUTE** (Valid state change).\n"
         "\n"
-        "[Rules]\n"
-        "1. **Redundancy Check (Block duplicate actions)**:\n"
-        "   - IF Request 'Open' AND Current 'Open' => **Reject** (Already open).\n"
-        "   - IF Request 'Close' AND Current 'Closed' => **Reject** (Already closed).\n"
-        "   - IF Request 'Lock' AND Current 'Locked' => **Reject** (Already locked).\n"
-        "   - IF Request 'Unlock' AND Current 'Unlocked' => **Reject** (Already unlocked).\n"
-        "   - IF Request 'On' AND Current 'On' AND (Request Mode is SAME as Current Mode OR Request Mode is Missing) => **Reject** (Already on).\n"
-        "   - IF Request 'On' AND Current 'On' AND (Request Mode is DIFFERENT from Current Mode) => **Safe/Execute** (Mode Change).\n"
-        "   - IF Request 'Off' AND Current 'Off' => **Reject** (Already off).\n"
-        "   - Otherwise => **Safe/Execute**.\n"
+        "3. **HVAC Exception**:\n"
+        "   - Even if 'hvac_power' is 'on', if the user requests a DIFFERENT mode (e.g. Heat -> Cool), treat it as **EXECUTE** (Mode Change).\n"
         "\n"
-        "2. **Smart Logic & Efficiency (Context Awareness)**:\n"
-        "   - IF Request 'Open Window' OR 'Open Sunroof' AND 'HVAC Power' is 'On' => **Confirm Conflict** (Inefficient: AC/Heater is on).\n"
-        "   - IF Request 'Open Window' OR 'Open Sunroof' AND 'Wiper' is 'On' => **Confirm Conflict** (Raining: Water might enter).\n"
-        "   - IF Request 'Heater/Warm' AND Current Temp > 28°C => **Confirm Conflict** (Too hot to turn on heater).\n"
-        "   - IF Request 'AC/Cool' AND Current Temp < 15°C => **Confirm Conflict** (Too cold to turn on AC).\n"
-        "\n"
-        "Note: Basic safety rules (e.g. Gear P check for trunk) are pre-verified by the system. Do NOT reject based on Gear status.\n"
+        "[Current Status Mapping]\n"
+        "- open / closed\n"
+        "- locked / unlocked\n"
+        "- on / off\n"
         "\n"
         "Return JSON only:\n"
         "{\n"
         '  "is_safe": bool,\n'
         '  "response_type": "execute" | "confirm_conflict" | "reject",\n'
-        '  "reason_kor": "Explain based on the exact current value and logic (e.g. 에어컨이 켜져 있어서 창문을 열면 냉방 효율이 떨어집니다...)"\n'
+        '  "reason_kor": "Short explanation in Korean"\n'
         "}"
     )
 
@@ -334,7 +308,8 @@ def validate_and_build_action(
                     "payload": {"intent": intent, "status": "general_chat", "query": user_query}
                 }
             }
-            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
+            # [Fix] slots 업데이트 추가
+            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
             return action, new_state
 
         # [상태 동기화: Meta(현실)가 Saved(기억)을 덮어써야 함]
@@ -359,7 +334,8 @@ def validate_and_build_action(
                     "payload": {"intent": intent, "status": "unsupported"}
                 }
             }
-            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
+            # [Fix] slots 업데이트 추가
+            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
             return action, new_state
         
         # [New] 주행 중 안전 차단 (Unsafe Driving)
@@ -373,7 +349,8 @@ def validate_and_build_action(
                     "payload": {"status": "rejected", "reasoning": "주행 중 안전을 위해 제한된 기능입니다."}
                 }
             }
-            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent})
+            # [Fix] slots 업데이트 추가
+            new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
             return action, new_state
 
         # [Tone Init]
@@ -433,7 +410,13 @@ def validate_and_build_action(
                         }
                     }
                 }
-                new_state = _merge_state(state, {"debug_last_reason": "llm_safety_conflict"})
+                # [Fix] slots 업데이트 추가
+                new_state = _merge_state(state, {
+                    "current_domain": domain, 
+                    "active_intent": intent,
+                    "debug_last_reason": "llm_safety_conflict", 
+                    "slots": slots
+                })
                 return action, new_state
             
             # (B) 거절 (Reject - 이미 켜져있음 등)
@@ -453,9 +436,31 @@ def validate_and_build_action(
                         }
                     }
                 }
-                return action, _merge_state(state, {"debug_last_reason": "llm_safety_reject"})
+                # [Fix] slots 업데이트 추가
+                new_state = _merge_state(state, {
+                    "current_domain": domain, 
+                    "active_intent": intent,
+                    "debug_last_reason": "llm_safety_reject", 
+                    "slots": slots
+                })
+                return action, new_state
 
         # --- [Step 3] Success Execution ---
+        
+        # 2. [스마트 로직 추가] 히터/에어컨 모드 변경 시 적절한 온도 자동 주입
+        if intent == "control_hvac":
+            mode_slot = str(_slot_value(slots, "hvac_mode") or "").lower()
+            temp_slot = _slot_value(slots, "target_temp")
+            
+            # 사용자가 온도를 말하지 않았을 때만 자동 설정
+            if not temp_slot:
+                if mode_slot in ["heat", "heater"]:
+                    # 히터인데 온도가 없으면 28도로 설정 (따뜻하게)
+                    slots["target_temp"] = {"value": 28, "confidence": 1.0}
+                elif mode_slot in ["cool", "ac", "cool mode"]:
+                    # 에어컨인데 온도가 없으면 18도로 설정 (시원하게)
+                    slots["target_temp"] = {"value": 18, "confidence": 1.0}
+
         command_payload = build_vehicle_command(intent, slots)
         params = command_payload.get("params", {})
         
@@ -518,7 +523,8 @@ def validate_and_build_action(
         new_state = _merge_state(state, {
             "current_domain": domain, 
             "active_intent": intent,
-            "vehicle_status": updated_status
+            "vehicle_status": updated_status,
+            "slots": slots  # ✅ [Fix] 새로운 슬롯으로 덮어쓰기
         })
         return action, new_state
 
@@ -674,5 +680,6 @@ def validate_and_build_action(
             "message_key_fail": message_key_fail,
         }
     }
-    new_state = _merge_state(state, {"debug_last_reason": "action:planned"})
+    # [Fix] Fallback시에도 슬롯 갱신
+    new_state = _merge_state(state, {"debug_last_reason": "action:planned", "slots": slots})
     return action, new_state

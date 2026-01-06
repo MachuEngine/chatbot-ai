@@ -13,7 +13,6 @@ from nlu.llm_client import nlu_with_llm
 from nlu.validator import validate_and_build_action
 from nlu.normalizer import apply_session_rules
 from nlu.edu_answer_llm import generate_edu_answer_with_llm
-# [추가] 렌더러 함수 임포트
 from nlu.response_renderer import render_from_result
 from utils.logging import log_event
 from utils.trace_utils import state_summary, nlu_diff_hint
@@ -196,6 +195,12 @@ def chat(req: ChatRequest):
 
         stage = "validation_result"
         meta_dict = _safe_meta_for_validator(req.meta)
+        
+        # ✅ [Fix] Validator가 텍스트 보정을 할 수 있도록 user_message 원본을 meta_dict에 주입
+        # nlu/validator.py에서 meta.get("user_message_preview")를 참조하여
+        # '에어컨', '히터' 등의 키워드가 누락된 경우 이를 보완합니다.
+        meta_dict["user_message_preview"] = user_message
+
         catalog_repo = default_catalog_repo()
 
         action, new_state = validate_and_build_action(
@@ -243,14 +248,14 @@ def chat(req: ChatRequest):
                 log_event(
                     trace_id,
                     "llm_task_execute_ok",
-                    {"type": "edu_answer_generation", "reply_text_len": len(reply.get("text") or "")},
+                    {
+                        "type": "edu_answer_generation", 
+                        "reply_text_len": len(reply.get("text") or "")
+                    },
                 )
 
-        # ✅ [추가] Renderer 호출 (Template & LLM Surface Rewrite 적용)
-        # 이 단계가 없어서 Validator가 준 기본 텍스트("이미 처리되어 있습니다")가 그대로 나갔습니다.
+        # ✅ [Renderer] 렌더러 호출 (Template & LLM Surface Rewrite 적용)
         if isinstance(action, dict) and "reply" in action:
-            # Render를 위한 임시 result 객체 구성
-            # Validator가 action을 리턴했다면 로직 수행은 OK로 간주
             render_result_mock = {
                 "ok": True,
                 "facts": action["reply"].get("payload", {})
@@ -263,7 +268,6 @@ def chat(req: ChatRequest):
                 trace_id=trace_id
             )
             
-            # 렌더링 된 텍스트(재치있는 답변)로 덮어쓰기
             if final_text and final_text.strip():
                 action["reply"]["text"] = final_text
 
