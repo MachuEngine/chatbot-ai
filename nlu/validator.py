@@ -164,7 +164,7 @@ def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, An
     }
 
 # Agentic Safety & Logic Check
-def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dict[str, Any], current_status: Dict[str, Any]) -> Dict[str, Any]:
+def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dict[str, Any], current_status: Dict[str, Any], history: str = "") -> Dict[str, Any]:
     """
     차량 제어 요청에 대해 현재 상태(Context)와 대조하여 안전하고 논리적인지 판단.
     Rule-Base 대신 LLM이 판단 (예: 33도에 히터 켜기 -> Unsafe, 이미 켜져있음 -> Redundancy)
@@ -172,9 +172,8 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] 프롬프트 보강: 타겟 파트 매핑 추가 (door_lock, sunroof 등)
-    # [수정] Redundancy 규칙을 아주 구체적으로 명시 (Lock/Locked, Close/Closed 등)
-    # [추가] Mode 변경(예: Heat -> Cool)은 Power On 상태라도 Redundancy가 아님을 명시
+    # [수정] 프롬프트 보강: 타겟 파트 매핑 추가 및 Redundancy 규칙 구체화
+    # [수정] Mode 변경(예: Heat -> Cool)은 Power On 상태라도 Redundancy가 아님을 명시
     system_prompt = (
         "You are the 'Safety Brain' of a smart car.\n"
         "Your goal: Check if the user's request is valid, safe, and not redundant.\n"
@@ -184,13 +183,20 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "2. Look up the *EXACT* key in 'Vehicle Status' for that part.\n"
         "   - Do NOT get confused by other parts (e.g. don't look at 'window' if user asks for 'trunk').\n"
         "3. Compare the Request vs Current Value.\n"
+        "4. Consider the 'Recent Conversation History' to understand context (e.g. user just turned something on).\n"
         "\n"
         "[Mapping Guide]\n"
         "- 'trunk' request -> Check 'trunk' status.\n"
+        "- 'frunk' request -> Check 'frunk' status.\n"
+        "- 'charge_port' request -> Check 'charge_port' status.\n"
         "- 'door_lock' request -> Check 'door_lock' status.\n"
         "- 'sunroof' request -> Check 'sunroof' status.\n"
+        "- 'light' request -> Check 'light_head' status.\n"
+        "- 'wiper' request -> Check 'wiper_front' status.\n"
+        "- 'window' request -> Check 'window_driver', 'window_passenger', etc. (based on location_detail).\n"
         "- 'steering_wheel' request -> Check 'steering_wheel_heat' status.\n"
         "- 'seat_heater' request -> Check 'seat_heater_driver' (or others).\n"
+        "- 'seat_ventilation' request -> Check 'seat_ventilation_driver' (or others).\n"
         "- 'air_conditioner/heater' request -> Check 'hvac_power' and 'hvac_mode'.\n"
         "\n"
         "[Rules]\n"
@@ -214,11 +220,13 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "{\n"
         '  "is_safe": bool,\n'
         '  "response_type": "execute" | "confirm_conflict" | "reject",\n'
-        '  "reason_kor": "Explain based on the exact current value (e.g. 현재 문이 이미 잠겨있습니다...)"\n'
+        '  "reason_kor": "Explain based on the exact current value and history (e.g. 이미 전조등이 켜져 있습니다...)"\n'
         "}"
     )
 
+    # [수정] 프롬프트에 대화 히스토리 추가
     user_prompt = (
+        f"Recent Conversation History:\n{history}\n\n"
         f"Vehicle Status: {json.dumps(current_status, ensure_ascii=False)}\n"
         f"User Request Intent: {intent}\n"
         f"Request Slots: {json.dumps(simple_slots, ensure_ascii=False)}\n"
@@ -399,7 +407,9 @@ def validate_and_build_action(
                 if effective_mode in ["cool", "ac"]: tone_guidance = "cool"
                 elif effective_mode in ["heat", "heater"]: tone_guidance = "warm"
             
-            safety_result = _check_driving_safety_with_llm(intent, slots, meta, current_status)
+            # [수정] 대화 히스토리 전달
+            history_summary = state.get("history_summary", "")
+            safety_result = _check_driving_safety_with_llm(intent, slots, meta, current_status, history=history_summary)
             
             # (A) 갈등/확인 필요
             if safety_result.get("response_type") == "confirm_conflict":
