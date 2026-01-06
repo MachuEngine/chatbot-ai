@@ -174,6 +174,7 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     
     # [수정] 프롬프트 보강: 타겟 파트 매핑 추가 (door_lock, sunroof 등)
     # [수정] Redundancy 규칙을 아주 구체적으로 명시 (Lock/Locked, Close/Closed 등)
+    # [추가] Mode 변경(예: Heat -> Cool)은 Power On 상태라도 Redundancy가 아님을 명시
     system_prompt = (
         "You are the 'Safety Brain' of a smart car.\n"
         "Your goal: Check if the user's request is valid, safe, and not redundant.\n"
@@ -190,6 +191,7 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "- 'sunroof' request -> Check 'sunroof' status.\n"
         "- 'steering_wheel' request -> Check 'steering_wheel_heat' status.\n"
         "- 'seat_heater' request -> Check 'seat_heater_driver' (or others).\n"
+        "- 'air_conditioner/heater' request -> Check 'hvac_power' and 'hvac_mode'.\n"
         "\n"
         "[Rules]\n"
         "1. **Redundancy Check (Block duplicate actions)**:\n"
@@ -197,7 +199,8 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "   - IF Request 'Close' AND Current 'Closed' => **Reject** (Already closed).\n"
         "   - IF Request 'Lock' AND Current 'Locked' => **Reject** (Already locked).\n"
         "   - IF Request 'Unlock' AND Current 'Unlocked' => **Reject** (Already unlocked).\n"
-        "   - IF Request 'On' AND Current 'On' => **Reject** (Already on).\n"
+        "   - IF Request 'On' AND Current 'On' AND (Request Mode is SAME as Current Mode OR Request Mode is Missing) => **Reject** (Already on).\n"
+        "   - IF Request 'On' AND Current 'On' AND (Request Mode is DIFFERENT from Current Mode) => **Safe/Execute** (Mode Change).\n"
         "   - IF Request 'Off' AND Current 'Off' => **Reject** (Already off).\n"
         "   - Otherwise => **Safe/Execute**.\n"
         "\n"
@@ -368,6 +371,16 @@ def validate_and_build_action(
 
         # [Step 2] Agentic Safety Check (LLM Reasoning)
         if intent in ["control_hvac", "control_hardware"]:
+            # [Patch] NLU Miss Correction (키워드 보정)
+            # NLU가 '에어컨', '히터'를 hvac_mode로 못 잡았을 경우를 대비해 텍스트 기반 보정
+            if intent == "control_hvac":
+                user_msg_raw = str(meta.get("user_message_preview") or "").replace(" ", "")
+                if _slot_value(slots, "hvac_mode") is None:
+                    if "에어컨" in user_msg_raw or "냉방" in user_msg_raw or "에어콘" in user_msg_raw:
+                        slots["hvac_mode"] = {"value": "cool", "confidence": 1.0}
+                    elif "히터" in user_msg_raw or "난방" in user_msg_raw:
+                        slots["hvac_mode"] = {"value": "heat", "confidence": 1.0}
+
             if intent == "control_hardware":
                 part_slot = str(_slot_value(slots, "target_part") or "")
                 if part_slot in ["seat_heater", "steering_wheel"]:
