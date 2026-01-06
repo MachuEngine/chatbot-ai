@@ -135,7 +135,6 @@ def _edu_make_llm_task(*, intent: str, slots: Dict[str, Any], meta: Dict[str, An
         "device_type": meta.get("device_type"),
         "mode": meta.get("mode"),
         "input_type": meta.get("input_type"),
-        # 교육 관련 필드 추가
         "user_level": meta.get("user_level"),
         "user_age_group": meta.get("user_age_group"),
         "subject": meta.get("subject"),
@@ -261,6 +260,7 @@ def _update_vehicle_status_simulation(current_status: Dict[str, Any], intent: st
                     new_status["window_passenger"] = val
 
             # [Logic Update] Seat Heater & Ventilation Mutually Exclusive
+            # 열선을 켜면 통풍을 끄고, 통풍을 켜면 열선을 끄는 로직
             elif part == "seat_heater":
                 if detail in ["driver", "front", ""]: 
                     new_status["seat_heater_driver"] = val
@@ -313,13 +313,13 @@ def validate_and_build_action(
     message_key_fail = "result.fail.generic"
 
     if domain == "driving":
-        # 1. 잡담(General Chat) 개선: LLM에게 답변 생성 요청
+        # 1. 잡담(General Chat) 개선: LLM에게 답변 생성 요청 (히스토리 포함)
         if intent == "general_chat":
             user_query = str(_slot_value(slots, "query") or "")
             if not user_query: 
                 user_query = meta.get("user_message_preview") or "대화"
             
-            # [Fix] 대화 히스토리 가져와서 프롬프트에 주입 (Context 기억)
+            # [Fix] 대화 히스토리 가져와서 프롬프트에 주입
             history_list = state.get("history", [])
             recent_history = history_list[-10:] # 최근 10개 턴
             history_str = ""
@@ -496,6 +496,50 @@ def validate_and_build_action(
                     slots["target_temp"] = {"value": 28, "confidence": 1.0}
                 elif mode_slot in ["cool", "ac", "cool mode"]:
                     slots["target_temp"] = {"value": 18, "confidence": 1.0}
+
+        # ✅ [Upgrade] 목적지 모호성 해결 (LLM-based Resolution)
+        # 룰 베이스(키워드 리스트)를 제거하고 LLM이 직접 판단 (Context Resolver)
+        if intent == "navigate_to":
+            dest = str(_slot_value(slots, "destination") or "").strip()
+            
+            # 목적지가 있으나, 모호한 표현일 가능성이 있으므로 LLM에게 확인
+            # (단순 키워드 체크가 아니라 문맥을 통해 구체적 장소인지 확인)
+            if dest:
+                history_list = state.get("history", [])
+                recent_history = history_list[-6:] 
+                history_str = ""
+                for h in recent_history:
+                    role = "User" if h.get("role") == "user" else "Assistant"
+                    history_str += f"{role}: {h.get('content')}\n"
+                
+                # [Smart Prompt]
+                resolution_prompt = (
+                    "You are a Context Resolver for a Navigation System.\n"
+                    "Analyze the User's Destination Request.\n"
+                    "\n"
+                    "1. IF the request is SPECIFIC (e.g. 'Gangnam Station', 'McDonalds', 'Home'), return it AS IS.\n"
+                    "2. IF the request is VAGUE (e.g. 'there', 'that place', 'the restaurant mentioned'), find the specific location from History.\n"
+                    "3. IF not found in history, return 'FAIL'.\n"
+                    "\n"
+                    "Return ONLY the specific location string."
+                )
+                
+                try:
+                    resolved = answer_with_openai(
+                        user_message=f"History:\n{history_str}\n\nUser Request Destination: {dest}",
+                        system_prompt=resolution_prompt,
+                        model="gpt-4o-mini",
+                        temperature=0.0
+                    )
+                    
+                    clean_resolved = resolved.strip().replace("'", "").replace('"', "")
+                    
+                    # LLM이 새로운 장소를 찾았거나, 기존 장소를 확정했으면 업데이트
+                    if clean_resolved and "FAIL" not in clean_resolved and len(clean_resolved) < 50:
+                        slots["destination"] = {"value": clean_resolved, "confidence": 1.0}
+                        
+                except Exception:
+                    pass
 
         command_payload = build_vehicle_command(intent, slots)
         params = command_payload.get("params", {})
