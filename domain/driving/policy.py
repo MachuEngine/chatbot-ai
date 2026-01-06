@@ -80,10 +80,10 @@ def check_action_validity(
             if seat_loc == "passenger" and "hvac_passenger" not in supported_features:
                 return "feature_not_supported"
             
-            if not seat_loc or seat_loc in ["driver", "all"]:
-                 has_hvac = any("hvac" in f for f in supported_features)
-                 if not has_hvac:
-                     return "feature_not_supported"
+            #if not seat_loc or seat_loc in ["driver", "all"]:
+            #     has_hvac = any("hvac" in f for f in supported_features)
+            #     if not has_hvac:
+            #         return "feature_not_supported"
 
         # HVAC는 주행 중 제어 허용 (Safety Check Pass)
 

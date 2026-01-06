@@ -172,8 +172,10 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] 프롬프트 보강: 타겟 파트 매핑 추가 및 Redundancy 규칙 구체화
-    # [수정] Mode 변경(예: Heat -> Cool)은 Power On 상태라도 Redundancy가 아님을 명시
+    # [수정] "Smart Logic & Efficiency" 규칙 적용
+    # - 에어컨/히터 켜진 상태에서 창문/선루프 개방 시 갈등(Confirm Conflict) 유도
+    # - 와이퍼 작동(비) 중 창문/선루프 개방 시 갈등 유도
+    # - 기존 온도 체크 포함
     system_prompt = (
         "You are the 'Safety Brain' of a smart car.\n"
         "Your goal: Check if the user's request is valid, safe, and not redundant.\n"
@@ -210,9 +212,11 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "   - IF Request 'Off' AND Current 'Off' => **Reject** (Already off).\n"
         "   - Otherwise => **Safe/Execute**.\n"
         "\n"
-        "2. **Context Conflict (Logic Check)**:\n"
-        "   - IF Request is 'Heater/Warm' AND Current Temp > 28°C => **Confirm Conflict** (Too hot to turn on heater).\n"
-        "   - IF Request is 'AC/Cool' AND Current Temp < 15°C => **Confirm Conflict** (Too cold to turn on AC).\n"
+        "2. **Smart Logic & Efficiency (Context Awareness)**:\n"
+        "   - IF Request 'Open Window' OR 'Open Sunroof' AND 'HVAC Power' is 'On' => **Confirm Conflict** (Inefficient: AC/Heater is on).\n"
+        "   - IF Request 'Open Window' OR 'Open Sunroof' AND 'Wiper' is 'On' => **Confirm Conflict** (Raining: Water might enter).\n"
+        "   - IF Request 'Heater/Warm' AND Current Temp > 28°C => **Confirm Conflict** (Too hot to turn on heater).\n"
+        "   - IF Request 'AC/Cool' AND Current Temp < 15°C => **Confirm Conflict** (Too cold to turn on AC).\n"
         "\n"
         "Note: Basic safety rules (e.g. Gear P check for trunk) are pre-verified by the system. Do NOT reject based on Gear status.\n"
         "\n"
@@ -220,11 +224,10 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "{\n"
         '  "is_safe": bool,\n'
         '  "response_type": "execute" | "confirm_conflict" | "reject",\n'
-        '  "reason_kor": "Explain based on the exact current value and history (e.g. 이미 전조등이 켜져 있습니다...)"\n'
+        '  "reason_kor": "Explain based on the exact current value and logic (e.g. 에어컨이 켜져 있어서 창문을 열면 냉방 효율이 떨어집니다...)"\n'
         "}"
     )
 
-    # [수정] 프롬프트에 대화 히스토리 추가
     user_prompt = (
         f"Recent Conversation History:\n{history}\n\n"
         f"Vehicle Status: {json.dumps(current_status, ensure_ascii=False)}\n"
