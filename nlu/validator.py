@@ -172,7 +172,7 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] 프롬프트: REJECT 규칙 우선 순위 상향 + HVAC Power 명시
+    # [수정] 프롬프트: REJECT 규칙 우선 순위 상향 + HVAC Power 명시 + Table Format
     system_prompt = (
         "You are the 'Safety Brain' of a smart car. Compare the user's Request vs Current Status.\n"
         "\n"
@@ -313,22 +313,34 @@ def validate_and_build_action(
     message_key_fail = "result.fail.generic"
 
     if domain == "driving":
-        # 1. 잡담(General Chat) 개선
+        # 1. 잡담(General Chat) 개선: LLM에게 답변 생성 요청
         if intent == "general_chat":
             user_query = str(_slot_value(slots, "query") or "")
             if not user_query: 
                 user_query = meta.get("user_message_preview") or "대화"
             
+            # [Fix] 대화 히스토리 가져와서 프롬프트에 주입 (Context 기억)
+            history_list = state.get("history", [])
+            recent_history = history_list[-10:] # 최근 10개 턴
+            history_str = ""
+            for h in recent_history:
+                role = "User" if h.get("role") == "user" else "Assistant"
+                content = h.get("content", "")
+                history_str += f"{role}: {content}\n"
+
             system_prompt = (
                 "You are a helpful and witty driving assistant AI.\n"
                 "Your user is currently driving. Keep answers concise, safe, and helpful.\n"
                 "If the user asks for recommendations (e.g. menu), give a specific and tasty recommendation.\n"
+                "Reflect on the Conversation History to understand context (e.g. 'something else').\n"
                 "Current Context: Driving Mode."
             )
             
+            full_user_input = f"Conversation History:\n{history_str}\n\nUser Request: {user_query}"
+
             try:
                 ai_reply = answer_with_openai(
-                    user_message=user_query,
+                    user_message=full_user_input, # [Fix] 히스토리 포함
                     system_prompt=system_prompt,
                     model="gpt-4o-mini",
                     temperature=0.7 
@@ -349,7 +361,7 @@ def validate_and_build_action(
             new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
             return action, new_state
 
-        # [상태 동기화]
+        # [상태 동기화: Meta(현실)가 Saved(기억)을 덮어써야 함]
         meta_status = meta.get("vehicle_status") or {}
         saved_status = state.get("vehicle_status") or {}
         current_status = dict(saved_status)
