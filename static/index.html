@@ -599,6 +599,15 @@
         </div>
 
         <div class="toggle-row">
+          <span class="toggle-label">🌡️ 현재 온도</span>
+          <input type="number" id="statCurrentTemp" value="20" style="width:60px; text-align:right;"> ℃
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">🎯 희망 온도</span>
+          <input type="number" id="statTargetTemp" value="22" style="width:60px; text-align:right;"> ℃
+        </div>
+
+        <div class="toggle-row">
           <span class="toggle-label">🪟 운전석 창문</span>
           <select id="statWinDriver" style="width:100px; height:28px; margin:0;">
             <option value="closed" selected>Closed</option>
@@ -833,6 +842,9 @@
       // 2. Vehicle Status (Include new controls)
       meta.vehicle_status = {
         gear: $("statGear").value, // [New] Gear
+        current_temp: parseFloat($("statCurrentTemp").value) || 20, // [New] Current Temp
+        target_temp: parseFloat($("statTargetTemp").value) || 22,   // [New] Target Temp
+        
         window_driver: $("statWinDriver").value,
         window_passenger: $("statWinPass").value,
         hvac_power: $("statHvacPower").value,
@@ -1018,8 +1030,10 @@
       }
       else if (cmd.type === 'hvac_control') {
           const act = cmd.params.action;
+          const temp = cmd.params.target_temp;
           if (act === 'on') $("statHvacPower").value = 'on';
           if (act === 'off') $("statHvacPower").value = 'off';
+          if (temp) $("statTargetTemp").value = temp;
       }
   }
 
@@ -1063,6 +1077,8 @@
       // Driving 기본값 리셋
       document.querySelectorAll('input[name="feature"]').forEach(cb => cb.checked = true);
       $("statGear").value = "P";
+      $("statCurrentTemp").value = "20";
+      $("statTargetTemp").value = "22";
       $("statWinDriver").value = "closed";
       $("statWinPass").value = "closed";
       $("statHvacPower").value = "off";

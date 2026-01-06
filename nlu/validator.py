@@ -172,11 +172,11 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] 프롬프트 보강: 타겟 파트와 상태값을 정확히 매칭하도록 지시
-    # [수정 2] 기어(Safety) 체크는 policy.py에서 수행하므로 LLM은 논리적 충돌만 체크하도록 수정 (Hallucination 방지)
+    # [수정] 프롬프트 보강: 타겟 파트 매핑 추가 (door_lock, sunroof 등)
+    # [수정] Redundancy 규칙을 아주 구체적으로 명시 (Lock/Locked, Close/Closed 등)
     system_prompt = (
         "You are the 'Safety Brain' of a smart car.\n"
-        "Your goal: Check if the user's request is logical and not redundant.\n"
+        "Your goal: Check if the user's request is valid, safe, and not redundant.\n"
         "\n"
         "[IMPORTANT STRATEGY]\n"
         "1. Identify the 'target_part' in the request (e.g. 'trunk', 'window').\n"
@@ -186,19 +186,24 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "\n"
         "[Mapping Guide]\n"
         "- 'trunk' request -> Check 'trunk' status.\n"
+        "- 'door_lock' request -> Check 'door_lock' status.\n"
+        "- 'sunroof' request -> Check 'sunroof' status.\n"
         "- 'steering_wheel' request -> Check 'steering_wheel_heat' status.\n"
         "- 'seat_heater' request -> Check 'seat_heater_driver' (or others).\n"
         "\n"
         "[Rules]\n"
-        "1. **Status Check (Redundancy)**:\n"
-        "   - IF Request 'Open' AND Current 'Closed' => **Safe/Execute**.\n"
-        "   - IF Request 'Close' AND Current 'Open' => **Safe/Execute**.\n"
-        "   - IF Request 'On' AND Current 'Off' => **Safe/Execute**.\n"
-        "   - IF Request 'Off' AND Current 'On' => **Safe/Execute**.\n"
-        "   - IF Request matches Current (e.g. Open & Open) => **Redundancy/Reject**.\n"
+        "1. **Redundancy Check (Block duplicate actions)**:\n"
+        "   - IF Request 'Open' AND Current 'Open' => **Reject** (Already open).\n"
+        "   - IF Request 'Close' AND Current 'Closed' => **Reject** (Already closed).\n"
+        "   - IF Request 'Lock' AND Current 'Locked' => **Reject** (Already locked).\n"
+        "   - IF Request 'Unlock' AND Current 'Unlocked' => **Reject** (Already unlocked).\n"
+        "   - IF Request 'On' AND Current 'On' => **Reject** (Already on).\n"
+        "   - IF Request 'Off' AND Current 'Off' => **Reject** (Already off).\n"
+        "   - Otherwise => **Safe/Execute**.\n"
         "\n"
-        "2. **Context Conflict**:\n"
-        "   - Heater when hot (>28C) or AC when cold (<15C) => **Confirm Conflict**.\n"
+        "2. **Context Conflict (Logic Check)**:\n"
+        "   - IF Request is 'Heater/Warm' AND Current Temp > 28°C => **Confirm Conflict** (Too hot to turn on heater).\n"
+        "   - IF Request is 'AC/Cool' AND Current Temp < 15°C => **Confirm Conflict** (Too cold to turn on AC).\n"
         "\n"
         "Note: Basic safety rules (e.g. Gear P check for trunk) are pre-verified by the system. Do NOT reject based on Gear status.\n"
         "\n"
@@ -206,7 +211,7 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         "{\n"
         '  "is_safe": bool,\n'
         '  "response_type": "execute" | "confirm_conflict" | "reject",\n'
-        '  "reason_kor": "Explain based on the exact current value (e.g. 현재 트렁크가 닫혀있으므로...)"\n'
+        '  "reason_kor": "Explain based on the exact current value (e.g. 현재 문이 이미 잠겨있습니다...)"\n'
         "}"
     )
 
