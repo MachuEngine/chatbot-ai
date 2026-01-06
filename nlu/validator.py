@@ -172,28 +172,29 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] 프롬프트 단순화 및 강력한 논리 주입
+    # [수정] 프롬프트: REJECT 규칙 우선 순위 상향 + HVAC Power 명시
     system_prompt = (
-        "You are the 'Safety Brain' of a smart car. Validate the user's request against the current vehicle status.\n"
+        "You are the 'Safety Brain' of a smart car. Compare the user's Request vs Current Status.\n"
         "\n"
-        "[CORE LOGIC - DO NOT HALLUCINATE]\n"
-        "1. **Identify Target & Current Value**:\n"
-        "   - Find the exact key in 'Vehicle Status' corresponding to the requested part.\n"
-        "   - Example: Request 'window' + 'driver' -> Check 'window_driver'.\n"
+        "[LOGIC TABLE - FOLLOW STRICTLY IN ORDER]\n"
+        "1. **HVAC Power Rule** (If intent='control_hvac' & action='on'/'off'):\n"
+        "   - **REJECT CONDITION**: Request 'Off' + Current 'Off' => **REJECT** (Already off)\n"
+        "   - **REJECT CONDITION**: Request 'On'  + Current 'On' + (No Mode/Temp Change) => **REJECT** (Already on)\n"
+        "   - Request 'Off' + Current 'On'  => **EXECUTE** (Turn off)\n"
+        "   - Request 'On'  + Current 'Off' => **EXECUTE** (Turn on)\n"
+        "   - Request 'On'  + Current 'On' + (Mode/Temp Change) => **EXECUTE** (Mode Change)\n"
         "\n"
-        "2. **Compare Action vs Status**:\n"
-        "   - **CASE A: Request Action == Current Status** (e.g. Request 'Open' but Status is 'open')\n"
-        "     => **REJECT** (Reason: Already in that state).\n"
-        "   - **CASE B: Request Action != Current Status** (e.g. Request 'Open' but Status is 'closed')\n"
-        "     => **EXECUTE** (Valid state change).\n"
+        "2. **General Hardware Rule** (Window, Trunk, Lock, etc.):\n"
+        "   - **REJECT CONDITION**: Request 'Open'  + Current 'Open'   => **REJECT**\n"
+        "   - **REJECT CONDITION**: Request 'Close' + Current 'Closed' => **REJECT**\n"
+        "   - **REJECT CONDITION**: Request 'Lock'  + Current 'Locked'   => **REJECT**\n"
+        "   - Request 'Open'  + Current 'Closed' => **EXECUTE**\n"
+        "   - Request 'Close' + Current 'Open'   => **EXECUTE**\n"
+        "   - Request 'Lock'  + Current 'Unlocked' => **EXECUTE**\n"
         "\n"
-        "3. **HVAC Exception**:\n"
-        "   - Even if 'hvac_power' is 'on', if the user requests a DIFFERENT mode (e.g. Heat -> Cool), treat it as **EXECUTE** (Mode Change).\n"
-        "\n"
-        "[Current Status Mapping]\n"
-        "- open / closed\n"
-        "- locked / unlocked\n"
-        "- on / off\n"
+        "[Mapping Instructions]\n"
+        "- For HVAC Power, look at key: 'hvac_power' (Not hvac_mode).\n"
+        "- For Window/Trunk, look at the specific key (e.g. 'window_driver').\n"
         "\n"
         "Return JSON only:\n"
         "{\n"
@@ -248,26 +249,35 @@ def _update_vehicle_status_simulation(current_status: Dict[str, Any], intent: st
             elif part == "frunk": new_status["frunk"] = val
             elif part == "door_lock": new_status["door_lock"] = val
             elif part == "window":
-                new_status["window_driver"] = val
-                new_status["window_passenger"] = val
-                new_status["window_rear_left"] = val
-                new_status["window_rear_right"] = val
+                if detail == "all":
+                    new_status["window_driver"] = val
+                    new_status["window_passenger"] = val
+                    new_status["window_rear_left"] = val
+                    new_status["window_rear_right"] = val
+                elif detail == "driver": new_status["window_driver"] = val
+                elif detail == "passenger": new_status["window_passenger"] = val
+                else: 
+                    new_status["window_driver"] = val
+                    new_status["window_passenger"] = val
+
+            # [Logic Update] Seat Heater & Ventilation Mutually Exclusive
             elif part == "seat_heater":
                 if detail in ["driver", "front", ""]: 
                     new_status["seat_heater_driver"] = val
-                    if val == "on": new_status["seat_ventilation_driver"] = "off" # [Fix] 열선 켜면 통풍 끄기
+                    if val == "on": new_status["seat_ventilation_driver"] = "off"
                 if detail in ["passenger", "front", ""]: 
                     new_status["seat_heater_passenger"] = val
-                    if val == "on": new_status["seat_ventilation_passenger"] = "off" # [Fix]
+                    if val == "on": new_status["seat_ventilation_passenger"] = "off"
                 if detail in ["rear", "rear_left", "all"]: new_status["seat_heater_rear_left"] = val
                 if detail in ["rear", "rear_right", "all"]: new_status["seat_heater_rear_right"] = val
             elif part == "seat_ventilation":
                 if detail in ["driver", "front", ""]: 
                     new_status["seat_ventilation_driver"] = val
-                    if val == "on": new_status["seat_heater_driver"] = "off" # [Fix] 통풍 켜면 열선 끄기
+                    if val == "on": new_status["seat_heater_driver"] = "off"
                 if detail in ["passenger", "front", ""]: 
                     new_status["seat_ventilation_passenger"] = val
-                    if val == "on": new_status["seat_heater_passenger"] = "off" # [Fix]
+                    if val == "on": new_status["seat_heater_passenger"] = "off"
+            
             elif part == "steering_wheel":
                 new_status["steering_wheel_heat"] = val
             elif part == "light":
@@ -303,15 +313,33 @@ def validate_and_build_action(
     message_key_fail = "result.fail.generic"
 
     if domain == "driving":
-        # 1. 잡담(General Chat)
+        # 1. 잡담(General Chat) 개선
         if intent == "general_chat":
             user_query = str(_slot_value(slots, "query") or "")
-            if not user_query: user_query = "대화"
+            if not user_query: 
+                user_query = meta.get("user_message_preview") or "대화"
             
+            system_prompt = (
+                "You are a helpful and witty driving assistant AI.\n"
+                "Your user is currently driving. Keep answers concise, safe, and helpful.\n"
+                "If the user asks for recommendations (e.g. menu), give a specific and tasty recommendation.\n"
+                "Current Context: Driving Mode."
+            )
+            
+            try:
+                ai_reply = answer_with_openai(
+                    user_message=user_query,
+                    system_prompt=system_prompt,
+                    model="gpt-4o-mini",
+                    temperature=0.7 
+                )
+            except Exception:
+                ai_reply = "제가 운전 중이라 잠시 딴생각을 했나 봐요. 다시 말씀해 주시겠어요?"
+
             action = {
                 "reply": {
                     "action_type": "answer",
-                    "text": user_query,
+                    "text": ai_reply,
                     "ui_hints": {"domain": domain, "intent": intent},
                     "message_key_ok": f"result.{domain}.{intent}",
                     "payload": {"intent": intent, "status": "general_chat", "query": user_query}
@@ -321,15 +349,13 @@ def validate_and_build_action(
             new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
             return action, new_state
 
-        # [상태 동기화: Meta(현실)가 Saved(기억)을 덮어써야 함]
+        # [상태 동기화]
         meta_status = meta.get("vehicle_status") or {}
         saved_status = state.get("vehicle_status") or {}
-        
-        # 기본적으로 기억(Saved)을 가져오되, 메타(Meta)가 있다면 그것이 최신이므로 덮어씀
         current_status = dict(saved_status)
         current_status.update(meta_status)
 
-        # [Step 1] Hardware Support Check (우선순위 높임)
+        # [Step 1] Hardware Support Check
         supported_features = meta.get("supported_features") 
         conflict_reason = check_action_validity(intent, slots, current_status, supported_features)
 
@@ -343,11 +369,9 @@ def validate_and_build_action(
                     "payload": {"intent": intent, "status": "unsupported"}
                 }
             }
-            # [Fix] slots 업데이트 추가
             new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
             return action, new_state
         
-        # [New] 주행 중 안전 차단 (Unsafe Driving)
         elif conflict_reason == "unsafe_driving":
             action = {
                 "reply": {
@@ -358,7 +382,6 @@ def validate_and_build_action(
                     "payload": {"status": "rejected", "reasoning": "주행 중 안전을 위해 제한된 기능입니다."}
                 }
             }
-            # [Fix] slots 업데이트 추가
             new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
             return action, new_state
 
@@ -368,8 +391,7 @@ def validate_and_build_action(
 
         # [Step 2] Agentic Safety Check (LLM Reasoning)
         if intent in ["control_hvac", "control_hardware"]:
-            # [Patch] NLU Miss Correction (키워드 보정)
-            # NLU가 '에어컨', '히터'를 hvac_mode로 못 잡았을 경우를 대비해 텍스트 기반 보정
+            # [Patch] NLU Miss Correction
             if intent == "control_hvac":
                 user_msg_raw = str(meta.get("user_message_preview") or "").replace(" ", "")
                 if _slot_value(slots, "hvac_mode") is None:
@@ -396,11 +418,10 @@ def validate_and_build_action(
                 if effective_mode in ["cool", "ac"]: tone_guidance = "cool"
                 elif effective_mode in ["heat", "heater"]: tone_guidance = "warm"
             
-            # [수정] 대화 히스토리 전달
+            # [수정] 대화 히스토리 전달 및 검증
             history_summary = state.get("history_summary", "")
             safety_result = _check_driving_safety_with_llm(intent, slots, meta, current_status, history=history_summary)
             
-            # (A) 갈등/확인 필요
             if safety_result.get("response_type") == "confirm_conflict":
                 reason = safety_result.get("reason_kor") or "현재 상황과 맞지 않는 요청입니다."
                 action = {
@@ -419,7 +440,6 @@ def validate_and_build_action(
                         }
                     }
                 }
-                # [Fix] slots 업데이트 추가
                 new_state = _merge_state(state, {
                     "current_domain": domain, 
                     "active_intent": intent,
@@ -428,7 +448,6 @@ def validate_and_build_action(
                 })
                 return action, new_state
             
-            # (B) 거절 (Reject - 이미 켜져있음 등)
             elif safety_result.get("response_type") == "reject":
                 reason = safety_result.get("reason_kor") or "수행할 수 없는 요청입니다."
                 action = {
@@ -445,7 +464,6 @@ def validate_and_build_action(
                         }
                     }
                 }
-                # [Fix] slots 업데이트 추가
                 new_state = _merge_state(state, {
                     "current_domain": domain, 
                     "active_intent": intent,
@@ -456,18 +474,15 @@ def validate_and_build_action(
 
         # --- [Step 3] Success Execution ---
         
-        # 2. [스마트 로직 추가] 히터/에어컨 모드 변경 시 적절한 온도 자동 주입
+        # [스마트 로직] 히터/에어컨 모드 변경 시 적절한 온도 자동 주입
         if intent == "control_hvac":
             mode_slot = str(_slot_value(slots, "hvac_mode") or "").lower()
             temp_slot = _slot_value(slots, "target_temp")
             
-            # 사용자가 온도를 말하지 않았을 때만 자동 설정
             if not temp_slot:
                 if mode_slot in ["heat", "heater"]:
-                    # 히터인데 온도가 없으면 28도로 설정 (따뜻하게)
                     slots["target_temp"] = {"value": 28, "confidence": 1.0}
                 elif mode_slot in ["cool", "ac", "cool mode"]:
-                    # 에어컨인데 온도가 없으면 18도로 설정 (시원하게)
                     slots["target_temp"] = {"value": 18, "confidence": 1.0}
 
         command_payload = build_vehicle_command(intent, slots)
@@ -479,29 +494,31 @@ def validate_and_build_action(
         base_text = "요청을 처리합니다."
         final_tone = tone_guidance
 
+        # [Fix] HVAC Text Logic: Explicit check for 'off' action
         if intent == "control_hvac":
+             act = str(params.get("action") or "")
              cmd_mode = str(params.get("hvac_mode") or "").lower().strip()
              check_mode = cmd_mode if cmd_mode else effective_mode
+             
              if check_mode in ["cool", "ac"]: final_tone = "cool"
              elif check_mode in ["heat", "heater"]: final_tone = "warm"
 
-        if intent == "control_hardware":
+             if act == "off":
+                 base_text = "공조장치를 끕니다."
+             else:
+                 if final_tone == "cool":
+                    base_text = "에어컨을 켜서 시원하게 합니다."
+                 elif final_tone == "warm":
+                    base_text = "히터를 켜서 따뜻하게 합니다."
+                 else:
+                    base_text = "공조장치를 켭니다."
+
+        elif intent == "control_hardware":
             part = str(params.get("part") or "")
             act = str(params.get("action") or "")
             ko_part = _KO_PART.get(part, part)
             ko_act = _KO_ACTION.get(act, act)
             base_text = f"{ko_part} {ko_act}."
-        
-        elif intent == "control_hvac":
-            act = str(params.get("action") or "")
-            ko_act = _KO_ACTION.get(act, act)
-            
-            if final_tone == "cool":
-                base_text = f"에어컨을 켜서 시원하게 합니다."
-            elif final_tone == "warm":
-                base_text = f"히터를 켜서 따뜻하게 합니다."
-            else:
-                base_text = f"공조장치를 {ko_act}."
         
         elif intent == "navigate_to":
             dest = str(params.get("destination") or "")
@@ -528,12 +545,11 @@ def validate_and_build_action(
             }
         }
         
-        # [State 저장]
         new_state = _merge_state(state, {
             "current_domain": domain, 
             "active_intent": intent,
             "vehicle_status": updated_status,
-            "slots": slots  # ✅ [Fix] 새로운 슬롯으로 덮어쓰기
+            "slots": slots
         })
         return action, new_state
 
