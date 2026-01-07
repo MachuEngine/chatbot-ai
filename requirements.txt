@@ -9,3 +9,4 @@ numpy
 pypdf
 scikit-learn
 beautifulsoup4
+aiofiles
