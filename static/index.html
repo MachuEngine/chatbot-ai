@@ -446,7 +446,7 @@
       <span class="brand-icon">🪐</span>
       AI Service Playground
     </div>
-    <div class="pill-badge" id="endpointChip">http://localhost:8000/api/chat</div>
+    <div class="pill-badge" id="endpointChip"></div>
   </header>
 
   <div class="card chat-panel">
@@ -504,7 +504,7 @@
 
       <div>
         <div class="section-label">Connection</div>
-        <input id="endpoint" value="http://localhost:8000/api/chat" placeholder="Endpoint URL" />
+        <input id="endpoint" placeholder="Endpoint URL" />
         <input id="clientSessionId" placeholder="Session ID (Auto)" />
         <div class="grid-2" style="margin-top:2px;">
             <select id="platformId">
@@ -1136,6 +1136,16 @@
     else toggleMode("education");
   }
 
+  // --- Auto-configure Endpoint ---
+  function setAutoEndpoint() {
+    const origin = window.location.origin;
+    // origin이 null이거나 file://인 경우 로컬호스트 기본값 사용, 그 외에는 origin 사용
+    const baseUrl = (origin === "null" || origin.startsWith("file:")) ? "http://localhost:8000" : origin;
+    const url = `${baseUrl}/api/chat`;
+    $("endpoint").value = url;
+    $("endpointChip").textContent = url;
+  }
+  
   // Init Events
   $("btnSend").addEventListener("click", send);
   $("btnClear").addEventListener("click", () => { clearAll(); saveState({}); });
@@ -1147,6 +1157,7 @@
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
   
   // Start
+  setAutoEndpoint();
   restore();
 </script>
 </body>
