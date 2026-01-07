@@ -47,6 +47,10 @@ def _schema_to_candidates(schema: Dict[str, Any], domain_override: Optional[str]
 def pick_candidates(req, state: Dict[str, Any]) -> List[Dict[str, str]]:
     mode = (getattr(req.meta, "mode", "") or "").lower().strip()
 
+    # [Companion Mode] - New
+    if mode == "companion":
+        return [{"domain": "companion", "intent": "general_chat"}]
+
     # [Driving Mode]
     if mode == "driving":
         schema = _get_schema_by_domain("driving")

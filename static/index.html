@@ -498,9 +498,10 @@
         <input type="radio" name="modeSelect" id="modeEdu" value="education" checked onchange="toggleMode('education')">
         <label for="modeEdu">🎓 Education</label>
         
-        <input type="radio" name="modeSelect" id="modeDriving" value="driving" onchange="toggleMode('driving')">
-        <label for="modeDriving">🚗 Driving</label>
-      </div>
+        <input type="radio" name="modeSelect" id="modeCompanion" value="companion" onchange="toggleMode('companion')">
+        <label for="modeCompanion">👯 Companion</label>
+
+        </div>
 
       <div>
         <div class="section-label">Connection</div>
@@ -563,6 +564,58 @@
              <option value="O-PIC">O-PIC</option>
              <option value="TOEIC">TOEIC</option>
            </select>
+        </div>
+      </div>
+
+      <div id="companionControls" style="display:none;">
+        <div class="section-label">1. Persona Selection</div>
+        <div class="help-text">Choose the AI's personality & concept</div>
+        <select id="compPersona">
+            <option value="friendly_helper" selected>Friendly Helper (기본/존대)</option>
+            <option value="expert_professional">Expert Pro (비서/하십시오체)</option>
+            <option value="witty_rebel">Witty Rebel (반항적/반말/Grok)</option>
+            <option value="empathetic_counselor">Counselor (공감/해요체)</option>
+            <option value="tsundere">Tsundere (츤데레/반말)</option>
+            <option value="lazy_genius">Lazy Genius (귀차니즘)</option>
+            <option value="korean_grandma">Grandma (욕쟁이 할머니/사투리)</option>
+            <option value="chunnibyou">Chunnibyou (중2병)</option>
+            <option value="historical_drama">General (사극 장군/하오체)</option>
+            <option value="machine_overlord">Overlord (AI 지배자)</option>
+            <option value="fanatic_fan">Fanatic Fan (주접킹/덕질)</option>
+            <option value="paranoid_conspiracist">Conspiracist (음모론자)</option>
+        </select>
+
+        <div class="section-label" style="margin-top:20px;">2. Interaction Config</div>
+        <div class="grid-2">
+            <div>
+                <span style="font-size:11px;color:var(--text-muted)">Verbosity</span>
+                <select id="compVerbosity">
+                    <option value="normal" selected>Normal</option>
+                    <option value="brief">Brief (짧게)</option>
+                    <option value="talkative">Talkative (길게)</option>
+                </select>
+            </div>
+            <div>
+                <span style="font-size:11px;color:var(--text-muted)">Mood Preset</span>
+                <select id="compMood">
+                    <option value="cheerful" selected>Cheerful</option>
+                    <option value="calm">Calm</option>
+                    <option value="gloomy">Gloomy</option>
+                    <option value="excited">Excited</option>
+                </select>
+            </div>
+        </div>
+        
+        <div style="margin-top:10px;">
+            <span style="font-size:11px;color:var(--text-muted)">Topic Hint</span>
+            <select id="compTopic">
+                <option value="" selected>None</option>
+                <option value="work">Work/Study</option>
+                <option value="relationship">Relationship</option>
+                <option value="hobby">Hobby/Game</option>
+                <option value="health">Health</option>
+                <option value="random">Random/Joke</option>
+            </select>
         </div>
       </div>
 
@@ -728,7 +781,7 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  const storeKey = "chatbot_tutor_config_v14_driving"; 
+  const storeKey = "chatbot_tutor_config_v15_companion"; 
 
   // --- Mode Switching Logic ---
   let currentMode = "education";
@@ -737,12 +790,21 @@
     currentMode = mode;
     const eduPanel = $("eduControls");
     const drivingPanel = $("drivingControls");
+    const compPanel = $("companionControls");
     
+    // Reset all panels
+    eduPanel.style.display = "none";
+    drivingPanel.style.display = "none";
+    compPanel.style.display = "none";
+
     if (mode === "driving") {
-      eduPanel.style.display = "none";
       drivingPanel.style.display = "block";
-      $("modeDriving").checked = true;
+      // $("modeDriving").checked = true; // Button is commented out in HTML
+    } else if (mode === "companion") {
+      compPanel.style.display = "block";
+      $("modeCompanion").checked = true;
     } else {
+      // Default: Education
       eduPanel.style.display = "block";
       drivingPanel.style.display = "none";
       $("modeEdu").checked = true;
@@ -864,6 +926,15 @@
         seat_heater_rear_left: "off",
         seat_heater_rear_right: "off"
       };
+    
+    } else if (currentMode === "companion") {
+      // [Companion Mode]
+      meta.mode = "companion";
+      meta.domain = "companion";
+      meta.persona = $("compPersona").value;
+      meta.verbosity = $("compVerbosity").value;
+      meta.mood_preset = $("compMood").value;
+      meta.topic_hint = $("compTopic").value;
 
     } else {
       // [Education Mode]
@@ -944,6 +1015,10 @@
         if (reply?.ui_hints?.used_pdf_rag) {
            debugInfo += ` • <span style="color:var(--success); font-weight:700;">📚 RAG</span>`;
         }
+
+      } else if (meta.mode === "companion") {
+        debugInfo += ` • <span style="color:var(--accent-blue)">👯 Companion</span>`;
+        debugInfo += ` • <span style="color:var(--warning)">${meta.persona}</span>`;
 
       } else if (meta.mode === "driving") {
         debugInfo += ` • <span style="color:var(--accent-blue)">🚗 Driving</span>`;
@@ -1054,13 +1129,18 @@
         { msg:"프랑스 혁명의 원인 알려줘", extra: {subject:"history"} },
         { msg:"Python 리스트 사용법", extra: {subject:"coding"} }
       ];
+    } else if (currentMode === "companion") {
+      examples = [
+        { msg:"나 오늘 회사에서 너무 힘들었어... 위로해줘." },
+        { msg:"재미있는 이야기 해줘! 심심해." },
+        { msg:"너는 꿈이 뭐야? AI도 꿈을 꾸니?" },
+        { msg:"요즘 유행하는 밈 알려줘" }
+      ];
     } else {
       examples = [
         { msg:"창문 닫아줘" },
         { msg:"엉덩이 따뜻하게 해줘" },
-        { msg:"뒷자리 열선 켜줘 (지원 안 함 테스트)" },
-        { msg:"핸들 열선 켜줘" },
-        { msg:"트렁크 열어줘 (기어 D일때 테스트)" }
+        { msg:"트렁크 열어줘" }
       ];
     }
     const pick = examples[Math.floor(Math.random() * examples.length)];
@@ -1073,8 +1153,13 @@
       $("userLevel").value = "intermediate";
       $("userAgeGroup").value = "adult";
       $("subjectContext").value = "general";
+    } else if (currentMode === "companion") {
+      $("compPersona").value = "friendly_helper";
+      $("compVerbosity").value = "normal";
+      $("compMood").value = "cheerful";
+      $("compTopic").value = "";
     } else {
-      // Driving 기본값 리셋
+      // Driving Reset
       document.querySelectorAll('input[name="feature"]').forEach(cb => cb.checked = true);
       $("statGear").value = "P";
       $("statCurrentTemp").value = "20";

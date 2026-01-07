@@ -171,7 +171,6 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
     user_message = meta.get("user_message_preview") or "사용자 요청"
     simple_slots = {k: _slot_value(slots, k) for k in slots}
     
-    # [수정] Python 레벨 힌트 생성 로직 정교화
     target_part = simple_slots.get("target_part")
     mapped_key_hint = ""
     
@@ -183,17 +182,11 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         elif target_part == "seat_ventilation":
             mapped_key_hint = "-> Check Status Key: 'seat_ventilation_driver' (Default)"
         elif target_part:
-            # [Fix] 일반 하드웨어 키 매핑 정교화
-            # 상태값에 해당 키가 그대로 있으면 그걸 쓰라고 명시
             if target_part in current_status:
                 mapped_key_hint = f"-> Check Status Key: '{target_part}'"
-            # 윈도우/도어락처럼 _driver가 붙는 경우
             elif f"{target_part}_driver" in current_status:
                 mapped_key_hint = f"-> Check Status Key: '{target_part}_driver'"
-            # 매핑 실패 시 힌트 주지 않음 (LLM 판단에 맡김)
 
-    # [수정] 프롬프트: 힌트 반영 및 규칙 단순화
-    # [수정] 프롬프트: 행동 중심(Action-Oriented) 로직으로 개편 + 예시 강화
     system_prompt = (
         "You are the 'Safety Brain' of a smart car. Check if the user's request is valid based on current status.\n"
         "\n"
@@ -237,7 +230,7 @@ def _check_driving_safety_with_llm(intent: str, slots: Dict[str, Any], meta: Dic
         f"Vehicle Status: {json.dumps(current_status, ensure_ascii=False)}\n"
         f"User Request Intent: {intent}\n"
         f"Request Slots: {json.dumps(simple_slots, ensure_ascii=False)}\n"
-        f"**[System Hint] {mapped_key_hint}**\n"  # [핵심] 여기에 힌트 주입
+        f"**[System Hint] {mapped_key_hint}**\n"
     )
 
     try:
@@ -289,8 +282,6 @@ def _update_vehicle_status_simulation(current_status: Dict[str, Any], intent: st
                     new_status["window_driver"] = val
                     new_status["window_passenger"] = val
 
-            # [Logic Update] Seat Heater & Ventilation Mutually Exclusive
-            # 열선을 켜면 통풍을 끄고, 통풍을 켜면 열선을 끄는 로직
             elif part == "seat_heater":
                 if detail in ["driver", "front", ""]: 
                     new_status["seat_heater_driver"] = val
@@ -342,6 +333,66 @@ def validate_and_build_action(
     message_key_ok = f"result.{domain}.{intent}"
     message_key_fail = "result.fail.generic"
 
+    # =========================================================
+    # [Companion Domain] 추가된 로직
+    # =========================================================
+    if domain == "companion":
+        user_query = str(_slot_value(slots, "query") or "")
+        if not user_query:
+            user_query = meta.get("user_message_preview") or ""
+
+        # 히스토리 구성
+        history_list = state.get("history", [])
+        recent_history = history_list[-10:]
+        history_str = ""
+        for h in recent_history:
+            role = "User" if h.get("role") == "user" else "Assistant"
+            content = h.get("content", "")
+            history_str += f"{role}: {content}\n"
+
+        # 감정 상태 (참고용)
+        user_emotion = state.get("user_emotion_profile", {})
+        mood_str = user_emotion.get("mood", "Neutral")
+        
+        # Validator System Prompt: 실제 대화 내용 생성
+        # (Persona 스타일링은 나중에 Surface Rewrite가 담당하더라도,
+        # 여기서는 적절한 답변 내용(Content)을 만들어야 함)
+        system_prompt = (
+            "You are a helpful and empathetic AI companion.\n"
+            f"User's current mood context: {mood_str}.\n"
+            "Respond naturally to the user's input.\n"
+            "Do NOT say 'Processing' or 'Done'. Just chat.\n"
+            "If the user asks 'what are you doing?', give a creative answer (e.g., 'Thinking about you', 'Learning new things')."
+        )
+
+        full_input = f"History:\n{history_str}\n\nUser: {user_query}"
+
+        try:
+            ai_reply = answer_with_openai(
+                user_message=full_input,
+                system_prompt=system_prompt,
+                model="gpt-4o-mini",
+                temperature=0.8
+            )
+        except Exception:
+            ai_reply = "제가 잠시 딴생각을 했나 봐요. 무슨 말씀이시죠?"
+
+        action = {
+            "reply": {
+                "action_type": "answer",
+                "text": ai_reply,
+                "ui_hints": {"domain": domain, "intent": intent},
+                "message_key_ok": message_key_ok,
+                "payload": {"intent": intent, "status": "general_chat", "query": user_query}
+            }
+        }
+        new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
+        return action, new_state
+
+
+    # =========================================================
+    # [Driving Domain]
+    # =========================================================
     if domain == "driving":
         # 1. 잡담(General Chat) 개선: LLM에게 답변 생성 요청 (히스토리 포함)
         if intent == "general_chat":
@@ -349,7 +400,6 @@ def validate_and_build_action(
             if not user_query: 
                 user_query = meta.get("user_message_preview") or "대화"
             
-            # [Fix] 대화 히스토리 가져와서 프롬프트에 주입
             history_list = state.get("history", [])
             recent_history = history_list[-10:] # 최근 10개 턴
             history_str = ""
@@ -370,7 +420,7 @@ def validate_and_build_action(
 
             try:
                 ai_reply = answer_with_openai(
-                    user_message=full_user_input, # [Fix] 히스토리 포함
+                    user_message=full_user_input, 
                     system_prompt=system_prompt,
                     model="gpt-4o-mini",
                     temperature=0.7 
@@ -387,7 +437,6 @@ def validate_and_build_action(
                     "payload": {"intent": intent, "status": "general_chat", "query": user_query}
                 }
             }
-            # [Fix] slots 업데이트 추가
             new_state = _merge_state(state, {"current_domain": domain, "active_intent": intent, "slots": slots})
             return action, new_state
 
@@ -460,7 +509,6 @@ def validate_and_build_action(
                 if effective_mode in ["cool", "ac"]: tone_guidance = "cool"
                 elif effective_mode in ["heat", "heater"]: tone_guidance = "warm"
             
-            # [수정] 대화 히스토리 전달 및 검증
             history_summary = state.get("history_summary", "")
             safety_result = _check_driving_safety_with_llm(intent, slots, meta, current_status, history=history_summary)
             
@@ -515,8 +563,6 @@ def validate_and_build_action(
                 return action, new_state
 
         # --- [Step 3] Success Execution ---
-        
-        # [스마트 로직] 히터/에어컨 모드 변경 시 적절한 온도 자동 주입
         if intent == "control_hvac":
             mode_slot = str(_slot_value(slots, "hvac_mode") or "").lower()
             temp_slot = _slot_value(slots, "target_temp")
@@ -527,13 +573,9 @@ def validate_and_build_action(
                 elif mode_slot in ["cool", "ac", "cool mode"]:
                     slots["target_temp"] = {"value": 18, "confidence": 1.0}
 
-        # ✅ [Upgrade] 목적지 모호성 해결 (LLM-based Resolution)
-        # 룰 베이스(키워드 리스트)를 제거하고 LLM이 직접 판단 (Context Resolver)
         if intent == "navigate_to":
             dest = str(_slot_value(slots, "destination") or "").strip()
             
-            # 목적지가 있으나, 모호한 표현일 가능성이 있으므로 LLM에게 확인
-            # (단순 키워드 체크가 아니라 문맥을 통해 구체적 장소인지 확인)
             if dest:
                 history_list = state.get("history", [])
                 recent_history = history_list[-6:] 
@@ -542,7 +584,6 @@ def validate_and_build_action(
                     role = "User" if h.get("role") == "user" else "Assistant"
                     history_str += f"{role}: {h.get('content')}\n"
                 
-                # [Smart Prompt]
                 resolution_prompt = (
                     "You are a Context Resolver for a Navigation System.\n"
                     "Analyze the User's Destination Request.\n"
@@ -564,7 +605,6 @@ def validate_and_build_action(
                     
                     clean_resolved = resolved.strip().replace("'", "").replace('"', "")
                     
-                    # LLM이 새로운 장소를 찾았거나, 기존 장소를 확정했으면 업데이트
                     if clean_resolved and "FAIL" not in clean_resolved and len(clean_resolved) < 50:
                         slots["destination"] = {"value": clean_resolved, "confidence": 1.0}
                         
@@ -573,14 +613,11 @@ def validate_and_build_action(
 
         command_payload = build_vehicle_command(intent, slots)
         params = command_payload.get("params", {})
-        
-        # [상태 업데이트]
         updated_status = _update_vehicle_status_simulation(current_status, intent, params)
 
         base_text = "요청을 처리합니다."
         final_tone = tone_guidance
 
-        # [Fix] HVAC Text Logic: Explicit check for 'off' action
         if intent == "control_hvac":
              act = str(params.get("action") or "")
              cmd_mode = str(params.get("hvac_mode") or "").lower().strip()

@@ -14,6 +14,7 @@ from nlu.validator import validate_and_build_action
 from nlu.normalizer import apply_session_rules
 from nlu.edu_answer_llm import generate_edu_answer_with_llm
 from nlu.response_renderer import render_from_result
+from nlu.emotion_analyzer import analyze_user_emotion # [New Import]
 from utils.logging import log_event
 from utils.trace_utils import state_summary, nlu_diff_hint
 from domain.kiosk.policy import default_catalog_repo
@@ -132,6 +133,7 @@ def chat(req: ChatRequest):
     meta_obj = req.meta if isinstance(req.meta, dict) else (req.meta.model_dump() if hasattr(req.meta, "model_dump") else {})
     platform_id = str(meta_obj.get("platform_id") or "web").strip()
     user_id = str(meta_obj.get("user_id") or meta_obj.get("client_session_id") or "").strip()
+    current_mode = str(meta_obj.get("mode") or "").strip()
 
     edu_payload = _merge_edu_payload_from_req_and_meta(req)
 
@@ -157,6 +159,18 @@ def chat(req: ChatRequest):
     try:
         stage = "state_loaded"
         state = sessions.get(platform_id, user_id, trace_id=trace_id)
+        
+        # [Added] 감정 분석 및 상태 업데이트
+        if user_message:
+            current_emotion = state.get("user_emotion_profile", {})
+            
+            # [Fix] 가져온 프로필이 dict가 아니면 초기화 (오류 방지)
+            if not isinstance(current_emotion, dict):
+                current_emotion = {}
+                
+            new_emotion = analyze_user_emotion(user_message, current_emotion)
+            state["user_emotion_profile"] = new_emotion
+            log_event(trace_id, "emotion_analyzed", new_emotion)
         
         # 사용자 메시지를 히스토리에 추가
         if "history" not in state:
@@ -196,9 +210,7 @@ def chat(req: ChatRequest):
         stage = "validation_result"
         meta_dict = _safe_meta_for_validator(req.meta)
         
-        # ✅ [Fix] Validator가 텍스트 보정을 할 수 있도록 user_message 원본을 meta_dict에 주입
-        # nlu/validator.py에서 meta.get("user_message_preview")를 참조하여
-        # '에어컨', '히터' 등의 키워드가 누락된 경우 이를 보완합니다.
+        # Validator가 텍스트 보정을 할 수 있도록 user_message 원본을 meta_dict에 주입
         meta_dict["user_message_preview"] = user_message
 
         catalog_repo = default_catalog_repo()
@@ -261,11 +273,15 @@ def chat(req: ChatRequest):
                 "facts": action["reply"].get("payload", {})
             }
             
+            # [Updated] meta와 state를 전달 (Companion 모드를 위해)
+            # 기존 모드에서는 이 인자들을 사용하지 않으므로 영향 없음
             final_text = render_from_result(
                 reply=action["reply"],
                 plan=nlu2,
                 result=render_result_mock,
-                trace_id=trace_id
+                trace_id=trace_id,
+                meta=req.meta,
+                state=state
             )
             
             if final_text and final_text.strip():

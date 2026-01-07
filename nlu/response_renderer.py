@@ -16,7 +16,12 @@ def _format_template(key: str, vars: Dict[str, Any]) -> str:
         return tmpl
 
 
-def _surface_enabled(message_key: str) -> bool:
+def _surface_enabled(message_key: str, domain_hint: str = "") -> bool:
+    # [New] Companion 모드는 항상 Surface Rewrite 사용
+    if domain_hint == "companion":
+        return True
+    
+    # [Existing] 기존 로직 유지
     if message_key.startswith("result.kiosk."):
         return True
     if message_key.startswith("result.driving."):
@@ -45,6 +50,8 @@ def render_from_result(
     plan: Dict[str, Any],
     result: Dict[str, Any],
     trace_id: Optional[str] = None,
+    meta: Optional[Any] = None,  # [New] Optional added
+    state: Optional[Dict[str, Any]] = None, # [New] Optional added
 ) -> str:
     """
     최종 응답 텍스트를 생성합니다.
@@ -56,6 +63,8 @@ def render_from_result(
     ok = bool(result.get("ok"))
     facts = result.get("facts")
     facts = facts if isinstance(facts, dict) else {}
+    
+    domain = plan.get("domain", "kiosk")
 
     # ---------------------------------------------------------
     # 1. [최우선] LLM 생성 결과가 있는지 확인 (Education 등)
@@ -124,16 +133,21 @@ def render_from_result(
 
     # 4. Surface Rewrite (Persona 적용)
     # Education 도메인은 보통 LLM이 톤을 조절하므로 Surface Rewrite를 스킵하는 것이 일반적입니다.
-    if ok and _surface_enabled(message_key):
+    # [Updated] _surface_enabled에 domain 힌트 전달
+    if ok and _surface_enabled(message_key, domain_hint=domain):
         domain_scope = "kiosk"
-        if "driving" in message_key:
+        if domain == "companion":
+            domain_scope = "companion"
+        elif "driving" in message_key or domain == "driving":
             domain_scope = "driving"
 
         rewritten = surface_rewrite(
             base_text=text, 
             facts=vars, 
             trace_id=trace_id,
-            domain=domain_scope 
+            domain=domain_scope,
+            meta=meta,   # [New] Pass meta
+            state=state  # [New] Pass state
         )
         if rewritten:
             return rewritten

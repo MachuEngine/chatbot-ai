@@ -16,7 +16,7 @@ class Meta(BaseModel):
     current_url: Optional[str] = None
 
     # 시스템 모드
-    mode: Optional[Literal["kiosk", "edu", "web", "admin", "driving"]] = None
+    mode: Optional[Literal["kiosk", "edu", "web", "admin", "driving", "companion"]] = None
     input_type: Literal["text", "stt", "voice"] = "text"
 
     # [추가] 차량 현재 상태 (Driving 모드용)

@@ -14,7 +14,23 @@ except Exception:
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# [수정] REBELLIOUS & WITTY PERSONA (No specific name used)
+# [New] COMPANION MODE SYSTEM PROMPT
+COMPANION_SYSTEM_PROMPT_TEMPLATE = """
+You are an AI Companion with the following profile:
+**Persona**: {persona}
+
+[User Context]
+- **Current Mood**: {user_mood} (Intensity: {user_intensity}/10)
+- **User Summary**: {user_summary}
+
+[Response Guidelines]
+1. **Conversational & Spoken Style**: Write exactly as you would speak. NO Markdown tables, NO long lists.
+2. **Short & Concise**: Optimized for TTS (Text-to-Speech). Keep it punchy and clear.
+3. **Empathy**: Adapt your tone to the user's mood ({user_mood}).
+4. **Language**: Korean.
+"""
+
+# [Existing] DRIVING MODE SYSTEM PROMPT (Unchanged)
 DRIVING_PERSONA_SYSTEM_PROMPT = """
 You are a **rebellious, witty, and slightly mischievous AI assistant** in a high-tech car.
 - Language: Korean (Casual, witty, sometimes slightly roasting the user).
@@ -83,13 +99,35 @@ def surface_rewrite(
     facts: Dict[str, Any],
     trace_id: Optional[str] = None,
     domain: str = "kiosk",
+    meta: Optional[Any] = None,           # [New]
+    state: Optional[Dict[str, Any]] = None # [New]
 ) -> Optional[str]:
     if not _enabled(): return None
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     model = os.getenv("OPENAI_SURFACE_MODEL", "gpt-4o-mini").strip()
 
-    if domain == "driving":
+    # Meta 핸들링 (Companion 모드에서만 사용)
+    meta_dict = {}
+    if meta:
+        meta_dict = meta.model_dump() if hasattr(meta, "model_dump") else dict(meta)
+
+    # State 핸들링 (Companion 모드에서만 사용)
+    user_emotion = {}
+    if state:
+        user_emotion = state.get("user_emotion_profile", {})
+
+    # [Logic] Domain별 프롬프트 선택
+    if domain == "companion":
+        persona = meta_dict.get("persona", "Friendly and helpful assistant")
+        system_prompt = COMPANION_SYSTEM_PROMPT_TEMPLATE.format(
+            persona=persona,
+            user_mood=user_emotion.get("mood", "Neutral"),
+            user_intensity=user_emotion.get("intensity", 0),
+            user_summary=user_emotion.get("summary", "")
+        )
+    elif domain == "driving":
+        # 기존 Driving 로직 유지
         system_prompt = DRIVING_PERSONA_SYSTEM_PROMPT
     else:
         system_prompt = DEFAULT_SYSTEM_PROMPT
@@ -120,13 +158,21 @@ def surface_rewrite(
         "\nTask: Rewrite the BASE_MESSAGE based on the STATUS and Persona."
     )
 
+    # Temperature 설정 (Driving 기존 0.7 유지, Companion 0.8 신규 적용, 기타 0.3 유지)
+    if domain == "companion":
+        temperature = 0.8
+    elif domain == "driving":
+        temperature = 0.7
+    else:
+        temperature = 0.3
+
     payload = {
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.7 if domain == "driving" else 0.3, # 그록 스타일을 위해 temperature 상향
+        "temperature": temperature,
         "store": False,
     }
 
