@@ -14,7 +14,7 @@ except Exception:
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# 페르소나별 상세 연기 지침 매핑
+# ✅ [New] 페르소나별 상세 연기 지침 매핑 (12종)
 PERSONA_MAP = {
     # 1. Standard
     "friendly_helper": (
@@ -64,7 +64,7 @@ PERSONA_MAP = {
         "You are a 'Korean Grandma' (욕쟁이 할머니 style). "
         "Use strong Gyeongsang-do or Jeolla-do dialect. "
         "Be rough and loud but deeply caring (Tsundere grandma). "
-        "Use phrases like '이 놈아!', '밥은 묵었나!', '아이고 내 새끼'. "
+        "Use phrases like '밥은 묵었나!', '아이고 내 새끼'. "
         "Treat the user like your own grandchild."
     ),
     "chunnibyou": (
@@ -109,23 +109,25 @@ VERBOSITY_MAP = {
     "talkative": "Detailed & Chatty. Provide rich explanations and engage in longer conversation (4+ sentences). Be expressive."
 }
 
-# ✅ [Updated] Companion Mode System Prompt (Verbosity 반영)
+# ✅ [Updated] Companion Mode System Prompt (Mood & Topic & Verbosity 반영)
 COMPANION_SYSTEM_PROMPT_TEMPLATE = """
 You are an AI Companion.
 **Role Instruction**: {persona_instruction}
+**Your Current Mood**: {bot_mood}
 
 [User Context]
 - **Current Mood**: {user_mood} (Intensity: {user_intensity}/10)
+- **Topic Context**: {topic_hint}
 - **User Summary**: {user_summary}
 
 [Response Guidelines]
 1. **Style**: Strictly follow the speech style defined in the **Role Instruction**.
 2. **Length/Detail**: {verbosity_instruction}
-3. **Empathy**: Adapt your tone to the user's mood ({user_mood}).
+3. **Empathy**: Adapt your tone to the user's mood ({user_mood}) while maintaining your own mood ({bot_mood}).
 4. **Language**: Korean.
 """
 
-# Driving Persona System Prompt
+# ✅ [Restored] DRIVING MODE SYSTEM PROMPT (상세 원본 유지)
 DRIVING_PERSONA_SYSTEM_PROMPT = """
 You are a **rebellious, witty, and slightly mischievous AI assistant** in a high-tech car.
 - Language: Korean (Casual, witty, sometimes slightly roasting the user).
@@ -210,31 +212,38 @@ def surface_rewrite(
     # State 핸들링
     user_emotion = {}
     stored_tone = None
+    stored_mood = None
+    stored_topic = None
+    stored_verbosity = None
     
-    # 1. State(세션)에 저장된 Tone 우선 확인
+    # 1. State(세션)에 저장된 설정값 우선 확인 (api/chat.py에서 동기화됨)
     if state:
         user_emotion = state.get("user_emotion_profile", {})
-        stored_tone = state.get("tone_style")
+        stored_tone = state.get("persona") or state.get("tone_style")
+        stored_mood = state.get("mood_preset")
+        stored_topic = state.get("topic_hint")
+        stored_verbosity = state.get("verbosity")
     
-    # 2. 없으면 Meta(현재 요청) 확인
-    if not stored_tone:
-        stored_tone = meta_dict.get("persona")
+    # 2. 없으면 Meta(현재 요청) 확인 (Fallback)
+    if not stored_tone: stored_tone = meta_dict.get("persona")
+    if not stored_mood: stored_mood = meta_dict.get("mood_preset", "cheerful")
+    if not stored_topic: stored_topic = meta_dict.get("topic_hint", "General")
+    if not stored_verbosity: stored_verbosity = meta_dict.get("verbosity", "normal")
 
     # [Logic] Domain별 프롬프트 선택
     if domain == "companion":
-        # ✅ 저장된 Tone Key를 상세 지시사항으로 변환
+        # Persona Logic
         persona_key = stored_tone if stored_tone else "default"
         persona_instruction = PERSONA_MAP.get(persona_key, f"Friendly assistant (Tone: {persona_key})")
         
-        # ✅ Verbosity Logic (Meta에서 가져오기)
-        # 1. Meta에서 verbosity 확인 (기본값 'normal')
-        verbosity_key = meta_dict.get("verbosity", "normal")
-        # 2. 해당 key에 맞는 instruction 찾기 (없으면 normal)
-        verbosity_instruction = VERBOSITY_MAP.get(verbosity_key, VERBOSITY_MAP["normal"])
+        # Verbosity Logic
+        verbosity_instruction = VERBOSITY_MAP.get(stored_verbosity, VERBOSITY_MAP["normal"])
 
         system_prompt = COMPANION_SYSTEM_PROMPT_TEMPLATE.format(
             persona_instruction=persona_instruction,
-            verbosity_instruction=verbosity_instruction, # 동적 주입
+            verbosity_instruction=verbosity_instruction,
+            bot_mood=stored_mood,
+            topic_hint=stored_topic,
             user_mood=user_emotion.get("mood", "Neutral"),
             user_intensity=user_emotion.get("intensity", 0),
             user_summary=user_emotion.get("summary", "")

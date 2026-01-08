@@ -160,13 +160,24 @@ def chat(req: ChatRequest):
         stage = "state_loaded"
         state = sessions.get(platform_id, user_id, trace_id=trace_id)
         
-        # ✅ [FIX] Meta(UI설정)에 있는 persona/tone_style을 Session State에 동기화
-        # 클라이언트가 보낸 설정("chunnibyou")을 세션에 즉시 반영
-        meta_persona = meta_obj.get("persona") or meta_obj.get("tone_style")
-        if meta_persona:
-            if state.get("tone_style") != meta_persona:
-                state["tone_style"] = meta_persona
-                log_event(trace_id, "state_update_from_meta", {"new_tone": meta_persona})
+        # ✅ [FIX] Meta(UI설정)을 Session State에 동기화
+        # UI에서 넘어온 설정값이 있으면 세션에 업데이트합니다. (persona, mood_preset, topic_hint, verbosity)
+        updates = {}
+        # Companion 관련 키들
+        for key in ["persona", "mood_preset", "topic_hint", "verbosity"]:
+            val = meta_obj.get(key)
+            if val is not None and state.get(key) != val:
+                state[key] = val
+                updates[key] = val
+        
+        # Tone Style (Legacy or Edu)
+        tone_val = meta_obj.get("tone_style")
+        if tone_val and state.get("tone_style") != tone_val:
+            state["tone_style"] = tone_val
+            updates["tone_style"] = tone_val
+            
+        if updates:
+            log_event(trace_id, "state_update_from_meta", updates)
 
         # [Added] 감정 분석 및 상태 업데이트
         if user_message:
@@ -207,11 +218,11 @@ def chat(req: ChatRequest):
         stage = "nlu_normalized"
         nlu2 = apply_session_rules(state, nlu, user_message, trace_id=trace_id)
         
-        # [NEW] 페르소나/톤 설정 변경 감지 및 상태 저장
-        # NLU가 tone_style 슬롯을 추출했다면 세션에 영구 반영 (우선순위: 대화 내역 > Meta)
+        # [NEW] NLU 슬롯에서 톤 변경 감지 -> 세션에 반영
         detected_tone = (nlu2.get("slots") or {}).get("tone_style")
         if detected_tone:
             state["tone_style"] = detected_tone
+            state["persona"] = detected_tone # NLU가 감지한 톤을 페르소나에도 반영
             log_event(trace_id, "state_update_tone", {"new_tone": detected_tone})
 
         log_event(
@@ -241,14 +252,18 @@ def chat(req: ChatRequest):
             catalog=catalog_repo,
         )
 
-        # [Important] validate 로직 내에서 state가 복제/수정될 수 있으므로,
-        # 우리가 앞서 설정한 tone_style이 new_state에도 유지되도록 보장
-        # 1. NLU 감지된 톤이 있으면 우선 적용
-        # 2. 없다면 기존 state(메타에서 동기화된 값 포함) 유지
-        if detected_tone and isinstance(new_state, dict):
-            new_state["tone_style"] = detected_tone
-        elif "tone_style" in state and isinstance(new_state, dict) and "tone_style" not in new_state:
-            new_state["tone_style"] = state["tone_style"]
+        # [Important] State 보존: Validator가 new_state를 새로 만들 수 있으므로
+        # 우리가 앞서 설정한 companion 설정값들이 유지되도록 보장
+        if isinstance(new_state, dict):
+            # 1. 기존 state의 companion 값들을 복사
+            for key in ["persona", "mood_preset", "topic_hint", "verbosity", "tone_style"]:
+                if key in state and key not in new_state:
+                    new_state[key] = state[key]
+            
+            # 2. NLU가 감지한 톤이 있다면 우선 적용 (덮어쓰기)
+            if detected_tone:
+                new_state["tone_style"] = detected_tone
+                new_state["persona"] = detected_tone
 
         log_event(
             trace_id,
@@ -298,7 +313,7 @@ def chat(req: ChatRequest):
                 "facts": action["reply"].get("payload", {})
             }
             
-            # [Updated] meta와 state를 전달 (state에는 tone_style이 포함되어 있음)
+            # [Updated] meta와 state를 전달 (state에는 tone_style 등이 포함됨)
             final_text = render_from_result(
                 reply=action["reply"],
                 plan=nlu2,
@@ -334,7 +349,7 @@ def chat(req: ChatRequest):
                 "platform_id": platform_id,
                 "user_id": user_id,
                 "turn_index": new_state.get("turn_index") if isinstance(new_state, dict) else None,
-                "tone_style": new_state.get("tone_style")  # 로그 확인용
+                "persona": new_state.get("persona"), # 로그 확인용
             },
         )
 

@@ -18,7 +18,7 @@ class SessionManager:
         self,
         redis_url: str = "redis://localhost:6379/0",
         key_prefix: str = "chatbot:session:",
-        ttl_seconds: int = 60 * 60 * 6,  # 6시간 (이 시간이 지나면 자동 삭제됨)
+        ttl_seconds: int = 60 * 60 * 6,  # 6시간
     ):
         self.r = redis.Redis.from_url(redis_url, decode_responses=True)
         self.key_prefix = key_prefix
@@ -26,13 +26,12 @@ class SessionManager:
 
     def _key(self, platform_id: str, user_id: str) -> str:
         """
-        Redis Key 구조 변경: chatbot:session:{platform_id}:{user_id}
+        Redis Key: chatbot:session:{platform_id}:{user_id}
         """
         pid = (platform_id or "default").strip()
         uid = (user_id or "").strip()
         
         if not uid:
-            # 유저 ID가 없으면 익명 ID 생성
             uid = f"anon_{int(time.time()*1000)}"
             
         return f"{self.key_prefix}{pid}:{uid}"
@@ -47,8 +46,13 @@ class SessionManager:
             "current_domain": None,
             "active_intent": None,
             "slots": {},
-            # [Added] 페르소나/톤 설정을 저장할 필드 추가
-            "tone_style": None,
+            # [Added] Companion 설정을 저장할 필드들
+            "persona": None,
+            "tone_style": None, # (Legacy or Edu tone)
+            "mood_preset": "cheerful",
+            "topic_hint": None,
+            "verbosity": "normal",
+            
             "last_bot_action": None,
             "created_at": now,
             "updated_at": now,
@@ -69,12 +73,10 @@ class SessionManager:
                     "user_id": user_id,
                     "redis_key": k,
                     "conversation_id": state.get("conversation_id"),
-                    "ttl_seconds": self.ttl_seconds,
                 })
             return state
 
         state = json.loads(raw)
-        # TTL 갱신(슬라이딩 세션: 활동 시 수명 연장)
         self.r.expire(k, self.ttl_seconds)
 
         if log_event and trace_id:
@@ -83,7 +85,6 @@ class SessionManager:
                 "user_id": user_id,
                 "conversation_id": state.get("conversation_id"),
                 "turn_index": state.get("turn_index"),
-                "ttl_seconds": self.ttl_seconds,
             })
         return state
 
@@ -95,7 +96,6 @@ class SessionManager:
             st["created_at"] = st["updated_at"]
         if st.get("slots") is None:
             st["slots"] = {}
-        # Ensure history exists
         if "history" not in st:
             st["history"] = []
 
@@ -108,14 +108,12 @@ class SessionManager:
                 "user_id": user_id,
                 "conversation_id": st.get("conversation_id"),
                 "turn_index": st.get("turn_index"),
-                "ttl_seconds": self.ttl_seconds,
-                "tone_style": st.get("tone_style")  # 로그 확인용
+                # 주요 설정값 로그 확인용
+                "persona": st.get("persona"),
+                "mood_preset": st.get("mood_preset")
             })
 
     def add_history(self, platform_id: str, user_id: str, role: str, message: str, limit: int = 30) -> None:
-        """
-        대화 내용을 히스토리에 추가하고 저장합니다.
-        """
         state = self.get(platform_id, user_id)
         history = state.get("history", [])
         
@@ -125,7 +123,6 @@ class SessionManager:
             "ts": time.time()
         })
         
-        # 최근 N개 유지
         if len(history) > limit:
             history = history[-limit:]
             
