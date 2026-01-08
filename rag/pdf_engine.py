@@ -76,9 +76,9 @@ class PDFEngine:
             print(f"[PDFEngine] Load Error: {e}")
             self.has_data = False
 
-    def search(self, query: str, top_k: int = 3, threshold: float = 0.18) -> str:
+    def search(self, query: str, top_k: int = 3, threshold: float = 0.25) -> str:
         """
-        threshold: 0.18 (너무 낮지도 높지도 않은 적정값)
+        threshold: 0.25 이상인 청크만 반환
         """
         if not self.has_data or not self.chunks:
             return ""
