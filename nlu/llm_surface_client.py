@@ -30,7 +30,7 @@ You are an AI Companion with the following profile:
 4. **Language**: Korean.
 """
 
-# [Existing] DRIVING MODE SYSTEM PROMPT (Unchanged)
+# [Existing] DRIVING MODE SYSTEM PROMPT (Updated to check Tone)
 DRIVING_PERSONA_SYSTEM_PROMPT = """
 You are a **rebellious, witty, and slightly mischievous AI assistant** in a high-tech car.
 - Language: Korean (Casual, witty, sometimes slightly roasting the user).
@@ -107,19 +107,25 @@ def surface_rewrite(
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     model = os.getenv("OPENAI_SURFACE_MODEL", "gpt-4o-mini").strip()
 
-    # Meta 핸들링 (Companion 모드에서만 사용)
+    # Meta 핸들링
     meta_dict = {}
     if meta:
         meta_dict = meta.model_dump() if hasattr(meta, "model_dump") else dict(meta)
 
-    # State 핸들링 (Companion 모드에서만 사용)
+    # State 핸들링
     user_emotion = {}
+    # [Added] State에서 저장된 tone_style 가져오기 (없으면 meta 확인)
+    stored_tone = None
     if state:
         user_emotion = state.get("user_emotion_profile", {})
+        stored_tone = state.get("tone_style")
+    
+    if not stored_tone:
+        stored_tone = meta_dict.get("persona") # Fallback to meta
 
     # [Logic] Domain별 프롬프트 선택
     if domain == "companion":
-        persona = meta_dict.get("persona", "Friendly and helpful assistant")
+        persona = stored_tone if stored_tone else "Friendly and helpful assistant"
         system_prompt = COMPANION_SYSTEM_PROMPT_TEMPLATE.format(
             persona=persona,
             user_mood=user_emotion.get("mood", "Neutral"),
@@ -127,7 +133,7 @@ def surface_rewrite(
             user_summary=user_emotion.get("summary", "")
         )
     elif domain == "driving":
-        # 기존 Driving 로직 유지
+        # 기존 Driving 로직 유지하되, tone_style을 반영할 수 있도록 구조 유지
         system_prompt = DRIVING_PERSONA_SYSTEM_PROMPT
     else:
         system_prompt = DEFAULT_SYSTEM_PROMPT
@@ -150,15 +156,19 @@ def surface_rewrite(
     elif status == "general_chat":
         context_header = "💬 STATUS: GENERAL CHAT"
 
+    # [Added] CURRENT_TONE을 User Prompt에 명시적으로 주입
+    tone_instruction = f"CURRENT_TONE: {stored_tone}" if stored_tone else "CURRENT_TONE: Default"
+
     user_prompt = (
         f"{context_header}\n"
         f"INTENT: {intent}\n"
+        f"{tone_instruction}\n"
         f"FACTS: {json.dumps(facts, ensure_ascii=False)}\n"
         f"BASE_MESSAGE: {base_text.strip()}\n"
-        "\nTask: Rewrite the BASE_MESSAGE based on the STATUS and Persona."
+        "\nTask: Rewrite the BASE_MESSAGE based on the STATUS, CURRENT_TONE, and Persona."
     )
 
-    # Temperature 설정 (Driving 기존 0.7 유지, Companion 0.8 신규 적용, 기타 0.3 유지)
+    # Temperature 설정
     if domain == "companion":
         temperature = 0.8
     elif domain == "driving":
