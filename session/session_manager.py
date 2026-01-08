@@ -46,10 +46,9 @@ class SessionManager:
             "current_domain": None,
             "active_intent": None,
             "slots": {},
-            # [Added] Companion 설정을 저장할 필드들
+            # [Added] Companion 설정 (mood_preset 제거됨)
             "persona": None,
             "tone_style": None, # (Legacy or Edu tone)
-            "mood_preset": "cheerful",
             "topic_hint": None,
             "verbosity": "normal",
             
@@ -108,9 +107,9 @@ class SessionManager:
                 "user_id": user_id,
                 "conversation_id": st.get("conversation_id"),
                 "turn_index": st.get("turn_index"),
-                # 주요 설정값 로그 확인용
+                # 로그 확인용 (mood_preset 제거)
                 "persona": st.get("persona"),
-                "mood_preset": st.get("mood_preset")
+                "verbosity": st.get("verbosity")
             })
 
     def add_history(self, platform_id: str, user_id: str, role: str, message: str, limit: int = 30) -> None:

@@ -586,24 +586,13 @@
         </select>
 
         <div class="section-label" style="margin-top:20px;">2. Interaction Config</div>
-        <div class="grid-2">
-            <div>
-                <span style="font-size:11px;color:var(--text-muted)">Verbosity</span>
-                <select id="compVerbosity">
-                    <option value="normal" selected>Normal</option>
-                    <option value="brief">Brief (짧게)</option>
-                    <option value="talkative">Talkative (길게)</option>
-                </select>
-            </div>
-            <div>
-                <span style="font-size:11px;color:var(--text-muted)">Mood Preset</span>
-                <select id="compMood">
-                    <option value="cheerful" selected>Cheerful</option>
-                    <option value="calm">Calm</option>
-                    <option value="gloomy">Gloomy</option>
-                    <option value="excited">Excited</option>
-                </select>
-            </div>
+        <div>
+            <span style="font-size:11px;color:var(--text-muted)">Verbosity</span>
+            <select id="compVerbosity">
+                <option value="normal" selected>Normal</option>
+                <option value="brief">Brief (짧게)</option>
+                <option value="talkative">Talkative (길게)</option>
+            </select>
         </div>
         
         <div style="margin-top:10px;">
@@ -933,7 +922,6 @@
       meta.domain = "companion";
       meta.persona = $("compPersona").value;
       meta.verbosity = $("compVerbosity").value;
-      meta.mood_preset = $("compMood").value;
       meta.topic_hint = $("compTopic").value;
 
     } else {
@@ -1156,7 +1144,6 @@
     } else if (currentMode === "companion") {
       $("compPersona").value = "friendly_helper";
       $("compVerbosity").value = "normal";
-      $("compMood").value = "cheerful";
       $("compTopic").value = "";
     } else {
       // Driving Reset

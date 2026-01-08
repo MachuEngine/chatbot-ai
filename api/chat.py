@@ -161,10 +161,9 @@ def chat(req: ChatRequest):
         state = sessions.get(platform_id, user_id, trace_id=trace_id)
         
         # ✅ [FIX] Meta(UI설정)을 Session State에 동기화
-        # UI에서 넘어온 설정값이 있으면 세션에 업데이트합니다. (persona, mood_preset, topic_hint, verbosity)
+        # UI에서 넘어온 설정값이 있으면 세션에 업데이트합니다. (mood_preset 제거)
         updates = {}
-        # Companion 관련 키들
-        for key in ["persona", "mood_preset", "topic_hint", "verbosity"]:
+        for key in ["persona", "topic_hint", "verbosity"]:
             val = meta_obj.get(key)
             if val is not None and state.get(key) != val:
                 state[key] = val
@@ -253,10 +252,10 @@ def chat(req: ChatRequest):
         )
 
         # [Important] State 보존: Validator가 new_state를 새로 만들 수 있으므로
-        # 우리가 앞서 설정한 companion 설정값들이 유지되도록 보장
+        # 우리가 앞서 설정한 companion 설정값들이 유지되도록 보장 (mood_preset 제거)
         if isinstance(new_state, dict):
             # 1. 기존 state의 companion 값들을 복사
-            for key in ["persona", "mood_preset", "topic_hint", "verbosity", "tone_style"]:
+            for key in ["persona", "topic_hint", "verbosity", "tone_style"]:
                 if key in state and key not in new_state:
                     new_state[key] = state[key]
             

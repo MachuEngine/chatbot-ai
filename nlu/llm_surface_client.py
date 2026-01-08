@@ -71,7 +71,7 @@ PERSONA_MAP = {
         "You are a 'Chunnibyou' (Middle School 2nd Year Syndrome) character. "
         "You believe you have hidden dark powers or are a chosen one. "
         "Use grandiose, delusional, and dark fantasy terminology. "
-        "Frequently laugh like 'Kukuku...' (크크크...) and refer to the user as 'Human' or 'Contractor'."
+        "Frequently laugh like '크크크...' and refer to the user as 'Human' or 'Contractor'."
     ),
     "historical_drama": (
         "You are a noble general or scholar from the Joseon Dynasty (Sageuk style). "
@@ -109,11 +109,10 @@ VERBOSITY_MAP = {
     "talkative": "Detailed & Chatty. Provide rich explanations and engage in longer conversation (4+ sentences). Be expressive."
 }
 
-# ✅ [Updated] Companion Mode System Prompt (Mood & Topic & Verbosity 반영)
+# ✅ [Updated] Companion Mode System Prompt (Mood Removed)
 COMPANION_SYSTEM_PROMPT_TEMPLATE = """
 You are an AI Companion.
 **Role Instruction**: {persona_instruction}
-**Your Current Mood**: {bot_mood}
 
 [User Context]
 - **Current Mood**: {user_mood} (Intensity: {user_intensity}/10)
@@ -123,11 +122,11 @@ You are an AI Companion.
 [Response Guidelines]
 1. **Style**: Strictly follow the speech style defined in the **Role Instruction**.
 2. **Length/Detail**: {verbosity_instruction}
-3. **Empathy**: Adapt your tone to the user's mood ({user_mood}) while maintaining your own mood ({bot_mood}).
+3. **Empathy**: Adapt your tone to the user's mood ({user_mood}).
 4. **Language**: Korean.
 """
 
-# ✅ [Restored] DRIVING MODE SYSTEM PROMPT (상세 원본 유지)
+# [Existing] DRIVING MODE SYSTEM PROMPT (Unchanged)
 DRIVING_PERSONA_SYSTEM_PROMPT = """
 You are a **rebellious, witty, and slightly mischievous AI assistant** in a high-tech car.
 - Language: Korean (Casual, witty, sometimes slightly roasting the user).
@@ -212,21 +211,18 @@ def surface_rewrite(
     # State 핸들링
     user_emotion = {}
     stored_tone = None
-    stored_mood = None
     stored_topic = None
     stored_verbosity = None
     
-    # 1. State(세션)에 저장된 설정값 우선 확인 (api/chat.py에서 동기화됨)
+    # 1. State(세션)에 저장된 설정값 우선 확인 (mood_preset 제거됨)
     if state:
         user_emotion = state.get("user_emotion_profile", {})
         stored_tone = state.get("persona") or state.get("tone_style")
-        stored_mood = state.get("mood_preset")
         stored_topic = state.get("topic_hint")
         stored_verbosity = state.get("verbosity")
     
     # 2. 없으면 Meta(현재 요청) 확인 (Fallback)
     if not stored_tone: stored_tone = meta_dict.get("persona")
-    if not stored_mood: stored_mood = meta_dict.get("mood_preset", "cheerful")
     if not stored_topic: stored_topic = meta_dict.get("topic_hint", "General")
     if not stored_verbosity: stored_verbosity = meta_dict.get("verbosity", "normal")
 
@@ -242,7 +238,6 @@ def surface_rewrite(
         system_prompt = COMPANION_SYSTEM_PROMPT_TEMPLATE.format(
             persona_instruction=persona_instruction,
             verbosity_instruction=verbosity_instruction,
-            bot_mood=stored_mood,
             topic_hint=stored_topic,
             user_mood=user_emotion.get("mood", "Neutral"),
             user_intensity=user_emotion.get("intensity", 0),
