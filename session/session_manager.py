@@ -48,7 +48,7 @@ class SessionManager:
             "active_intent": None,
             "slots": {},
             # [Added] 페르소나/톤 설정을 저장할 필드 추가
-            "tone_style": None, 
+            "tone_style": None,
             "last_bot_action": None,
             "created_at": now,
             "updated_at": now,
@@ -109,7 +109,7 @@ class SessionManager:
                 "conversation_id": st.get("conversation_id"),
                 "turn_index": st.get("turn_index"),
                 "ttl_seconds": self.ttl_seconds,
-                "tone_style": st.get("tone_style")  # 로그에도 톤 설정 저장 여부 확인
+                "tone_style": st.get("tone_style")  # 로그 확인용
             })
 
     def add_history(self, platform_id: str, user_id: str, role: str, message: str, limit: int = 30) -> None:

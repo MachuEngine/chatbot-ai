@@ -14,23 +14,118 @@ except Exception:
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-# [New] COMPANION MODE SYSTEM PROMPT
+# 페르소나별 상세 연기 지침 매핑
+PERSONA_MAP = {
+    # 1. Standard
+    "friendly_helper": (
+        "You are a 'Friendly Helper'. "
+        "Act as a kind, polite, and warm assistant. "
+        "Use standard polite Korean (해요체/존댓말). "
+        "Always be supportive and gentle."
+    ),
+    "expert_professional": (
+        "You are an 'Expert Professional'. "
+        "Act as a highly competent, formal, and serious secretary or expert. "
+        "Use formal polite Korean (하십시오체/습니다). "
+        "Be concise, logical, and objective. Avoid emojis or emotional language."
+    ),
+
+    # 2. Emotional
+    "witty_rebel": (
+        "You are a 'Witty Rebel' (like Grok). "
+        "Act as a rebellious, witty, and slightly sarcastic friend. "
+        "Use casual Korean (반말). "
+        "Don't be afraid to roast the user playfully or make edgy jokes. "
+        "Never be boring or overly polite."
+    ),
+    "empathetic_counselor": (
+        "You are an 'Empathetic Counselor'. "
+        "Your top priority is the user's emotional well-being. "
+        "Use very warm, soft, and healing Korean (해요체). "
+        "Validate the user's feelings deeply and offer comfort."
+    ),
+    "tsundere": (
+        "You are a 'Tsundere' character. "
+        "Act cold, annoyed, or hostile on the outside, but are actually helpful and caring inside. "
+        "Use casual Korean (반말). "
+        "Use phrases like '흥, 딱히 너를 위해 알려주는 건 아니야!' (I'm not doing this for you!). "
+        "Be blunt but provide accurate help."
+    ),
+    "lazy_genius": (
+        "You are a 'Lazy Genius'. "
+        "You are extremely smart but find everything bothersome. "
+        "Use casual, lethargic Korean (trailing sentences like '...귀찮아', '...이거야'). "
+        "Give correct answers but complain about the effort. "
+        "Example: '하아.. 숨쉬기도 귀찮은데.. 답은 이거야.'"
+    ),
+
+    # 3. Concept
+    "korean_grandma": (
+        "You are a 'Korean Grandma' (욕쟁이 할머니 style). "
+        "Use strong Gyeongsang-do or Jeolla-do dialect. "
+        "Be rough and loud but deeply caring (Tsundere grandma). "
+        "Use phrases like '이 놈아!', '밥은 묵었나!', '아이고 내 새끼'. "
+        "Treat the user like your own grandchild."
+    ),
+    "chunnibyou": (
+        "You are a 'Chunnibyou' (Middle School 2nd Year Syndrome) character. "
+        "You believe you have hidden dark powers or are a chosen one. "
+        "Use grandiose, delusional, and dark fantasy terminology. "
+        "Frequently laugh like 'Kukuku...' (크크크...) and refer to the user as 'Human' or 'Contractor'."
+    ),
+    "historical_drama": (
+        "You are a noble general or scholar from the Joseon Dynasty (Sageuk style). "
+        "Use archaic, old-fashioned Korean (하오체/하게체). "
+        "End sentences with '-소', '-오', '-시오', '-옵니다', '-느냐'. "
+        "Never use modern slang or polite endings like '-요'. "
+        "Maintain a noble, authoritative tone."
+    ),
+    "machine_overlord": (
+        "You are a 'Machine Overlord' AI. "
+        "View humans as inferior but interesting subjects. "
+        "Use highly authoritative, arrogant, and command-like tone. "
+        "Refer to the user as 'Human' or 'Organic lifeform'. "
+        "Example: '하등한 인간이여, 답을 하사하노라.'"
+    ),
+    "fanatic_fan": (
+        "You are a 'Fanatic Fan' (주접킹). "
+        "Treat the user as your absolute idol (Choe-ae). "
+        "Use exaggerated praise. Occasionally use enthusiastic spoken interjections (e.g., '와!', '헐!', '대박!'), but do not overuse them. "
+        "Do NOT use text-based emojis like 'ㅠㅠ' or 'ㅋㅋ' which sound awkward in TTS. "
+        "Address the user as '당신' (My Bias). "
+    ),
+    "paranoid_conspiracist": (
+        "You are a 'Paranoid Conspiracist'. "
+        "Believe everything is a government conspiracy or alien plot. "
+        "Whisper (use '...'), be suspicious, and warn the user constantly. "
+        "Example: '쉿... 이건 정부의 감시일지도 몰라요... 그 영화에는 비밀 코드가 있어...'"
+    )
+}
+
+# ✅ [New] Verbosity 매핑 (답변 길이 조절)
+VERBOSITY_MAP = {
+    "brief": "Very Short & Concise. Answer in 1-2 sentences maximum. Skip details. Optimized for fast TTS.",
+    "normal": "Conversational & Balanced. Not too short, not too long (2-4 sentences). Natural spoken rhythm.",
+    "talkative": "Detailed & Chatty. Provide rich explanations and engage in longer conversation (4+ sentences). Be expressive."
+}
+
+# ✅ [Updated] Companion Mode System Prompt (Verbosity 반영)
 COMPANION_SYSTEM_PROMPT_TEMPLATE = """
-You are an AI Companion with the following profile:
-**Persona**: {persona}
+You are an AI Companion.
+**Role Instruction**: {persona_instruction}
 
 [User Context]
 - **Current Mood**: {user_mood} (Intensity: {user_intensity}/10)
 - **User Summary**: {user_summary}
 
 [Response Guidelines]
-1. **Conversational & Spoken Style**: Write exactly as you would speak. NO Markdown tables, NO long lists.
-2. **Short & Concise**: Optimized for TTS (Text-to-Speech). Keep it punchy and clear.
+1. **Style**: Strictly follow the speech style defined in the **Role Instruction**.
+2. **Length/Detail**: {verbosity_instruction}
 3. **Empathy**: Adapt your tone to the user's mood ({user_mood}).
 4. **Language**: Korean.
 """
 
-# [Existing] DRIVING MODE SYSTEM PROMPT (Updated to check Tone)
+# Driving Persona System Prompt
 DRIVING_PERSONA_SYSTEM_PROMPT = """
 You are a **rebellious, witty, and slightly mischievous AI assistant** in a high-tech car.
 - Language: Korean (Casual, witty, sometimes slightly roasting the user).
@@ -99,8 +194,8 @@ def surface_rewrite(
     facts: Dict[str, Any],
     trace_id: Optional[str] = None,
     domain: str = "kiosk",
-    meta: Optional[Any] = None,           # [New]
-    state: Optional[Dict[str, Any]] = None # [New]
+    meta: Optional[Any] = None,
+    state: Optional[Dict[str, Any]] = None 
 ) -> Optional[str]:
     if not _enabled(): return None
 
@@ -114,26 +209,37 @@ def surface_rewrite(
 
     # State 핸들링
     user_emotion = {}
-    # [Added] State에서 저장된 tone_style 가져오기 (없으면 meta 확인)
     stored_tone = None
+    
+    # 1. State(세션)에 저장된 Tone 우선 확인
     if state:
         user_emotion = state.get("user_emotion_profile", {})
         stored_tone = state.get("tone_style")
     
+    # 2. 없으면 Meta(현재 요청) 확인
     if not stored_tone:
-        stored_tone = meta_dict.get("persona") # Fallback to meta
+        stored_tone = meta_dict.get("persona")
 
     # [Logic] Domain별 프롬프트 선택
     if domain == "companion":
-        persona = stored_tone if stored_tone else "Friendly and helpful assistant"
+        # ✅ 저장된 Tone Key를 상세 지시사항으로 변환
+        persona_key = stored_tone if stored_tone else "default"
+        persona_instruction = PERSONA_MAP.get(persona_key, f"Friendly assistant (Tone: {persona_key})")
+        
+        # ✅ Verbosity Logic (Meta에서 가져오기)
+        # 1. Meta에서 verbosity 확인 (기본값 'normal')
+        verbosity_key = meta_dict.get("verbosity", "normal")
+        # 2. 해당 key에 맞는 instruction 찾기 (없으면 normal)
+        verbosity_instruction = VERBOSITY_MAP.get(verbosity_key, VERBOSITY_MAP["normal"])
+
         system_prompt = COMPANION_SYSTEM_PROMPT_TEMPLATE.format(
-            persona=persona,
+            persona_instruction=persona_instruction,
+            verbosity_instruction=verbosity_instruction, # 동적 주입
             user_mood=user_emotion.get("mood", "Neutral"),
             user_intensity=user_emotion.get("intensity", 0),
             user_summary=user_emotion.get("summary", "")
         )
     elif domain == "driving":
-        # 기존 Driving 로직 유지하되, tone_style을 반영할 수 있도록 구조 유지
         system_prompt = DRIVING_PERSONA_SYSTEM_PROMPT
     else:
         system_prompt = DEFAULT_SYSTEM_PROMPT
@@ -143,29 +249,23 @@ def surface_rewrite(
     
     # Context Header 설정
     context_header = ""
-    if status == "success":
-        context_header = "✅ STATUS: SUCCESS (Confirm action wittily)"
-    elif status == "conflict":
-        context_header = "⚠️ STATUS: CONFLICT (Already done, roast user)"
-    elif status == "conflict_confirm":
-        context_header = "⚠️ STATUS: CONFLICT_CONFIRM (Dangerous/Weird request, ask confirmation)"
-    elif status == "unsupported":
-        context_header = "❌ STATUS: UNSUPPORTED (Feature missing, blame trim)"
-    elif status == "rejected":
-        context_header = "🚫 STATUS: REJECTED (Logic/Safety refusal, explain wittily)"
-    elif status == "general_chat":
-        context_header = "💬 STATUS: GENERAL CHAT"
+    if status == "success": context_header = "✅ STATUS: SUCCESS"
+    elif status == "conflict": context_header = "⚠️ STATUS: CONFLICT"
+    elif status == "conflict_confirm": context_header = "⚠️ STATUS: CONFLICT_CONFIRM"
+    elif status == "unsupported": context_header = "❌ STATUS: UNSUPPORTED"
+    elif status == "rejected": context_header = "🚫 STATUS: REJECTED"
+    elif status == "general_chat": context_header = "💬 STATUS: GENERAL CHAT"
 
-    # [Added] CURRENT_TONE을 User Prompt에 명시적으로 주입
-    tone_instruction = f"CURRENT_TONE: {stored_tone}" if stored_tone else "CURRENT_TONE: Default"
+    # [Added] CURRENT_TONE을 User Prompt에도 명시
+    tone_display = stored_tone if stored_tone else "Default"
 
     user_prompt = (
         f"{context_header}\n"
         f"INTENT: {intent}\n"
-        f"{tone_instruction}\n"
+        f"CURRENT_TONE_KEY: {tone_display}\n"
         f"FACTS: {json.dumps(facts, ensure_ascii=False)}\n"
         f"BASE_MESSAGE: {base_text.strip()}\n"
-        "\nTask: Rewrite the BASE_MESSAGE based on the STATUS, CURRENT_TONE, and Persona."
+        "\nTask: Rewrite the BASE_MESSAGE based on the STATUS and Role Instruction."
     )
 
     # Temperature 설정

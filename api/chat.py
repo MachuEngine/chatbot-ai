@@ -14,7 +14,7 @@ from nlu.validator import validate_and_build_action
 from nlu.normalizer import apply_session_rules
 from nlu.edu_answer_llm import generate_edu_answer_with_llm
 from nlu.response_renderer import render_from_result
-from nlu.emotion_analyzer import analyze_user_emotion
+from nlu.emotion_analyzer import analyze_user_emotion # [New Import]
 from utils.logging import log_event
 from utils.trace_utils import state_summary, nlu_diff_hint
 from domain.kiosk.policy import default_catalog_repo
@@ -161,18 +161,21 @@ def chat(req: ChatRequest):
         state = sessions.get(platform_id, user_id, trace_id=trace_id)
         
         # ✅ [FIX] Meta(UI설정)에 있는 persona/tone_style을 Session State에 동기화
-        # 클라이언트가 보낸 설정("chunnibyou")을 세션에 즉시 반영하여 'state_saved' 시점에 null이 되지 않도록 함
+        # 클라이언트가 보낸 설정("chunnibyou")을 세션에 즉시 반영
         meta_persona = meta_obj.get("persona") or meta_obj.get("tone_style")
         if meta_persona:
             if state.get("tone_style") != meta_persona:
                 state["tone_style"] = meta_persona
                 log_event(trace_id, "state_update_from_meta", {"new_tone": meta_persona})
 
-        # 감정 분석 및 상태 업데이트
+        # [Added] 감정 분석 및 상태 업데이트
         if user_message:
             current_emotion = state.get("user_emotion_profile", {})
+            
+            # [Fix] 가져온 프로필이 dict가 아니면 초기화 (오류 방지)
             if not isinstance(current_emotion, dict):
                 current_emotion = {}
+                
             new_emotion = analyze_user_emotion(user_message, current_emotion)
             state["user_emotion_profile"] = new_emotion
             log_event(trace_id, "emotion_analyzed", new_emotion)
@@ -204,11 +207,12 @@ def chat(req: ChatRequest):
         stage = "nlu_normalized"
         nlu2 = apply_session_rules(state, nlu, user_message, trace_id=trace_id)
         
-        # [NEW] 대화 중 사용자가 직접 톤 변경을 요청한 경우(NLU 슬롯) -> 세션 업데이트 (Meta 설정보다 우선할 수 있음)
+        # [NEW] 페르소나/톤 설정 변경 감지 및 상태 저장
+        # NLU가 tone_style 슬롯을 추출했다면 세션에 영구 반영 (우선순위: 대화 내역 > Meta)
         detected_tone = (nlu2.get("slots") or {}).get("tone_style")
         if detected_tone:
             state["tone_style"] = detected_tone
-            log_event(trace_id, "state_update_tone_nlu", {"new_tone": detected_tone})
+            log_event(trace_id, "state_update_tone", {"new_tone": detected_tone})
 
         log_event(
             trace_id,
@@ -221,6 +225,8 @@ def chat(req: ChatRequest):
 
         stage = "validation_result"
         meta_dict = _safe_meta_for_validator(req.meta)
+        
+        # Validator가 텍스트 보정을 할 수 있도록 user_message 원본을 meta_dict에 주입
         meta_dict["user_message_preview"] = user_message
 
         catalog_repo = default_catalog_repo()
@@ -235,9 +241,14 @@ def chat(req: ChatRequest):
             catalog=catalog_repo,
         )
 
-        # [Important] Validation 과정에서 State가 재생성될 수 있으므로 tone_style 유지 보장
-        if "tone_style" in state and isinstance(new_state, dict) and "tone_style" not in new_state:
-             new_state["tone_style"] = state["tone_style"]
+        # [Important] validate 로직 내에서 state가 복제/수정될 수 있으므로,
+        # 우리가 앞서 설정한 tone_style이 new_state에도 유지되도록 보장
+        # 1. NLU 감지된 톤이 있으면 우선 적용
+        # 2. 없다면 기존 state(메타에서 동기화된 값 포함) 유지
+        if detected_tone and isinstance(new_state, dict):
+            new_state["tone_style"] = detected_tone
+        elif "tone_style" in state and isinstance(new_state, dict) and "tone_style" not in new_state:
+            new_state["tone_style"] = state["tone_style"]
 
         log_event(
             trace_id,
@@ -251,6 +262,7 @@ def chat(req: ChatRequest):
         stage = "llm_task_execute"
         if isinstance(action, dict) and isinstance(action.get("llm_task"), dict):
             llm_task = action["llm_task"]
+
             if (nlu2.get("domain") == "education") and llm_task.get("type") == "edu_answer_generation":
                 history_list = state.get("history", [])
                 generated = generate_edu_answer_with_llm(
@@ -259,23 +271,34 @@ def chat(req: ChatRequest):
                     history=history_list,
                     trace_id=trace_id,
                 )
+
                 reply = action.get("reply") if isinstance(action.get("reply"), dict) else {}
                 reply["text"] = (generated.get("text") or "").strip() or reply.get("text") or "처리할게요."
+
                 if isinstance(generated.get("ui_hints"), dict):
                     base = reply.get("ui_hints") if isinstance(reply.get("ui_hints"), dict) else {}
                     reply["ui_hints"] = {**base, **generated["ui_hints"]}
+
                 action["reply"] = reply
                 action.pop("llm_task", None)
-                log_event(trace_id, "llm_task_execute_ok", {"type": "edu_answer_generation"})
 
-        # ✅ [Renderer] 렌더러 호출
+                log_event(
+                    trace_id,
+                    "llm_task_execute_ok",
+                    {
+                        "type": "edu_answer_generation", 
+                        "reply_text_len": len(reply.get("text") or "")
+                    },
+                )
+
+        # ✅ [Renderer] 렌더러 호출 (Template & LLM Surface Rewrite 적용)
         if isinstance(action, dict) and "reply" in action:
             render_result_mock = {
                 "ok": True,
                 "facts": action["reply"].get("payload", {})
             }
             
-            # 여기서 전달되는 new_state에는 위에서 동기화한 tone_style이 포함되어 있음
+            # [Updated] meta와 state를 전달 (state에는 tone_style이 포함되어 있음)
             final_text = render_from_result(
                 reply=action["reply"],
                 plan=nlu2,
@@ -296,6 +319,7 @@ def chat(req: ChatRequest):
         if reply_text:
             if "history" not in new_state:
                 new_state["history"] = state.get("history", [])[:]
+            
             new_state["history"].append({"role": "assistant", "content": reply_text, "ts": time.time()})
             if len(new_state["history"]) > 30:
                 new_state["history"] = new_state["history"][-30:]
@@ -309,27 +333,67 @@ def chat(req: ChatRequest):
             {
                 "platform_id": platform_id,
                 "user_id": user_id,
-                "turn_index": new_state.get("turn_index"),
-                "tone_style": new_state.get("tone_style") # 로그 확인용
+                "turn_index": new_state.get("turn_index") if isinstance(new_state, dict) else None,
+                "tone_style": new_state.get("tone_style")  # 로그 확인용
             },
         )
 
         stage = "response_out"
         duration_ms = int((time.perf_counter() - t0) * 1000)
         reply = action.get("reply") if isinstance(action, dict) else None
-        
-        log_event(trace_id, "response_out", {"reply_preview": reply.get("text") if reply else None, "duration_ms": duration_ms})
+        reply_preview = reply.get("text") if isinstance(reply, dict) else None
+
+        log_event(
+            trace_id,
+            "response_out",
+            {
+                "reply_preview": reply_preview,
+                "duration_ms": duration_ms,
+            },
+        )
 
         return ChatResponse(trace_id=trace_id, reply=action["reply"], state=new_state)
 
     except HTTPException as e:
         duration_ms = int((time.perf_counter() - t0) * 1000)
-        log_event(trace_id, "error", {"stage": stage, "http_status": e.status_code, "detail": e.detail, "duration_ms": duration_ms})
+        log_event(
+            trace_id,
+            "error",
+            {
+                "stage": stage,
+                "duration_ms": duration_ms,
+                "http_status": e.status_code,
+                "detail": e.detail,
+                "state_summary": state_summary(state) if isinstance(state, dict) else {"_state": str(state)},
+            },
+        )
         raise
+
     except Exception as e:
         duration_ms = int((time.perf_counter() - t0) * 1000)
-        log_event(trace_id, "error", {"stage": stage, "error_type": type(e).__name__, "error_message": str(e), "duration_ms": duration_ms})
+        log_event(
+            trace_id,
+            "error",
+            {
+                "stage": stage,
+                "duration_ms": duration_ms,
+                "state_summary": state_summary(state) if isinstance(state, dict) else {"_state": str(state)},
+                "new_state_summary": state_summary(new_state) if isinstance(new_state, dict) else {"_state": str(new_state)},
+                "action_summary": _safe_action_summary(action),
+                **_exc_info(e),
+            },
+        )
         raise HTTPException(status_code=500, detail={"message": "internal_error", "trace_id": trace_id})
+
     finally:
         duration_ms = int((time.perf_counter() - t0) * 1000)
-        log_event(trace_id, "request_done", {"stage": stage, "duration_ms": duration_ms})
+        log_event(
+            trace_id,
+            "request_done",
+            {
+                "stage": stage,
+                "duration_ms": duration_ms,
+                "platform_id": platform_id,
+                "user_id": user_id,
+            },
+        )
