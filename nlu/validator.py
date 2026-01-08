@@ -16,6 +16,8 @@ from domain.driving.policy import build_vehicle_command, check_action_validity
 
 # LLM Reasoning을 위한 클라이언트 임포트
 from nlu.llm_answer_client import answer_with_openai
+# [NEW] RAG 엔진 임포트
+from rag.pdf_engine import global_pdf_engine
 
 TEMPLATES = {
     "result.kiosk.add_item": "",
@@ -341,6 +343,24 @@ def validate_and_build_action(
         if not user_query:
             user_query = meta.get("user_message_preview") or ""
 
+        # [NEW] PDF RAG Retrieval for Companion
+        pdf_context = ""
+        used_rag = False
+        if global_pdf_engine.has_data:
+            retrieved_text = global_pdf_engine.search(user_query, top_k=3)
+            if retrieved_text:
+                used_rag = True
+                pdf_context = (
+                    f"\n[REFERENCE MATERIAL (User's PDF)]\n"
+                    f"{retrieved_text}\n"
+                    "---------------------------------------------------\n"
+                    "INSTRUCTION: The user provided this document. "
+                    "If the query is related to this, answer using the info while maintaining your persona. "
+                    "If unrelated, ignore it.\n"
+                )
+                if log_event and trace_id:
+                     log_event(trace_id, "companion_pdf_rag_hit", {"len": len(retrieved_text)})
+
         # 히스토리 구성
         history_list = state.get("history", [])
         recent_history = history_list[-10:]
@@ -354,11 +374,10 @@ def validate_and_build_action(
         user_emotion = state.get("user_emotion_profile", {})
         mood_str = user_emotion.get("mood", "Neutral")
         
-        # Validator System Prompt: 실제 대화 내용 생성
-        # (Persona 스타일링은 나중에 Surface Rewrite가 담당하더라도,
-        # 여기서는 적절한 답변 내용(Content)을 만들어야 함)
+        # Validator System Prompt에 PDF Context 주입
         system_prompt = (
             "You are a helpful and empathetic AI companion.\n"
+            f"{pdf_context}" 
             f"User's current mood context: {mood_str}.\n"
             "Respond naturally to the user's input.\n"
             "Do NOT say 'Processing' or 'Done'. Just chat.\n"
@@ -381,7 +400,11 @@ def validate_and_build_action(
             "reply": {
                 "action_type": "answer",
                 "text": ai_reply,
-                "ui_hints": {"domain": domain, "intent": intent},
+                "ui_hints": {
+                    "domain": domain, 
+                    "intent": intent, 
+                    "used_pdf_rag": used_rag # UI에 RAG 사용 여부 알림
+                },
                 "message_key_ok": message_key_ok,
                 "payload": {"intent": intent, "status": "general_chat", "query": user_query}
             }

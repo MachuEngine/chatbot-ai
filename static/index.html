@@ -221,6 +221,63 @@
       background: #252628;
       border-color: #555;
     }
+    /* --- Emotion Widget Styles --- */
+    .emotion-widget {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      display: none; /* 기본적으로 숨김 (Companion 모드에서만 표시) */
+    }
+    .emo-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .emo-mood {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent-blue);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .emo-intensity-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .emo-bar-bg {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.1);
+      height: 6px;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .emo-bar-fill {
+      height: 100%;
+      background: var(--accent-gradient);
+      width: 0%;
+      transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .emo-val {
+      font-size: 11px;
+      font-family: var(--mono);
+      color: var(--text-muted);
+      width: 30px;
+      text-align: right;
+    }
+    .emo-summary {
+      font-size: 11px;
+      color: var(--text-sub);
+      font-style: italic;
+      line-height: 1.4;
+      border-top: 1px solid rgba(255,255,255,0.05);
+      padding-top: 8px;
+    }
     textarea {
       flex: 1;
       background: transparent;
@@ -503,6 +560,33 @@
 
         </div>
 
+      <div id="pdfDropZone" class="drop-zone" style="margin-bottom:16px; margin-top:10px;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+            <div style="font-size:20px;">📄</div>
+            <div class="drop-text" id="dropText">PDF 자료 업로드 (RAG)</div>
+          </div>
+          <input type="file" id="pdfInput" accept=".pdf" style="display:none" />
+      </div>
+      
+      <div id="emotionWidget" class="emotion-widget">
+        <div class="section-label" style="border:none; margin-bottom:4px;">Sentiment Analysis</div>
+        
+        <div class="emo-header">
+            <div class="emo-mood" id="emoMoodDisplay">😐 Neutral</div>
+        </div>
+        
+        <div class="emo-intensity-wrapper">
+            <span style="font-size:10px; color:var(--text-muted)">Intensity</span>
+            <div class="emo-bar-bg">
+                <div id="emoIntensityBar" class="emo-bar-fill"></div>
+            </div>
+            <div id="emoIntensityVal" class="emo-val">0/10</div>
+        </div>
+
+        <div id="emoSummaryText" class="emo-summary">
+            No emotion data yet.
+        </div>
+      </div>
       <div>
         <div class="section-label">Connection</div>
         <input id="endpoint" placeholder="Endpoint URL" />
@@ -792,6 +876,7 @@
     } else if (mode === "companion") {
       compPanel.style.display = "block";
       $("modeCompanion").checked = true;
+      if(emoWidget) emoWidget.style.display = "block";
     } else {
       // Default: Education
       eduPanel.style.display = "block";
@@ -1007,6 +1092,10 @@
       } else if (meta.mode === "companion") {
         debugInfo += ` • <span style="color:var(--accent-blue)">👯 Companion</span>`;
         debugInfo += ` • <span style="color:var(--warning)">${meta.persona}</span>`;
+        // [수정] 실제 검색된(used_pdf_rag) 경우에만 RAG 태그 표시
+        if (reply?.ui_hints?.used_pdf_rag) {
+           debugInfo += ` • <span style="color:var(--success); font-weight:700;">📚 RAG</span>`;
+        }
 
       } else if (meta.mode === "driving") {
         debugInfo += ` • <span style="color:var(--accent-blue)">🚗 Driving</span>`;
@@ -1027,6 +1116,10 @@
       setJson($("replyJson"), reply);
       setJson($("stateJson"), state);
       saveState({ lastResponse: json, mode: currentMode });
+
+      if (meta.mode === "companion") {
+          updateEmotionUI(state);
+      }
       
       // Update UI Simulator if action was successful
       if (meta.mode === "driving" && reply.command) {
@@ -1188,6 +1281,75 @@
         dropZone.style.borderColor = "var(--success)";
       } else { dropText.textContent = "Upload Failed"; }
     } catch (e) { console.error(e); dropText.textContent = "Error"; }
+  }
+
+  function toggleMode(mode) {
+    currentMode = mode;
+    const eduPanel = $("eduControls");
+    const drivingPanel = $("drivingControls");
+    const compPanel = $("companionControls");
+    const emoWidget = $("emotionWidget"); // [NEW]
+
+    // Reset all
+    eduPanel.style.display = "none";
+    drivingPanel.style.display = "none";
+    compPanel.style.display = "none";
+    if(emoWidget) emoWidget.style.display = "none"; // [NEW]
+
+    if (mode === "driving") {
+      drivingPanel.style.display = "block";
+    } else if (mode === "companion") {
+      compPanel.style.display = "block";
+      $("modeCompanion").checked = true;
+      if(emoWidget) emoWidget.style.display = "block"; // [NEW] Show in Companion
+    } else {
+      // Default: Education
+      eduPanel.style.display = "block";
+      $("modeEdu").checked = true;
+    }
+  }
+
+  function getMoodEmoji(mood) {
+    const m = (mood || "").toLowerCase();
+    if (m.includes("happy") || m.includes("joy") || m.includes("playful")) return "😄";
+    if (m.includes("sad") || m.includes("depress")) return "😢";
+    if (m.includes("angry") || m.includes("frustrated") || m.includes("annoy")) return "😡";
+    if (m.includes("fear") || m.includes("scared")) return "😨";
+    if (m.includes("surprised") || m.includes("shock")) return "😲";
+    if (m.includes("neutral") || m.includes("calm")) return "😐";
+    if (m.includes("bored") || m.includes("tired")) return "🥱";
+    if (m.includes("curious") || m.includes("interested")) return "🤔";
+    if (m.includes("sarcastic") || m.includes("witty")) return "😏";
+    if (m.includes("love") || m.includes("affection")) return "🥰";
+    return "😐"; // Default
+  }
+
+  function updateEmotionUI(state) {
+    if (!state || !state.user_emotion_profile) return;
+    
+    const profile = state.user_emotion_profile;
+    const mood = profile.mood || "Neutral";
+    const intensity = parseInt(profile.intensity) || 0;
+    const summary = profile.summary || "No details.";
+
+    // Update Mood
+    const emoji = getMoodEmoji(mood);
+    $("emoMoodDisplay").textContent = `${emoji} ${mood}`;
+
+    // Update Bar
+    // intensity 0-10 -> width 0-100%
+    const pct = Math.min(Math.max(intensity, 0), 10) * 10;
+    $("emoIntensityBar").style.width = `${pct}%`;
+    $("emoIntensityVal").textContent = `${intensity}/10`;
+    
+    // Bar Color change based on intensity
+    const bar = $("emoIntensityBar");
+    if (intensity >= 8) bar.style.background = "#FF5546"; // Red (High)
+    else if (intensity >= 4) bar.style.background = "linear-gradient(135deg, #4b90ff, #ff5546)"; // Mix
+    else bar.style.background = "#4b90ff"; // Blue (Low)
+
+    // Update Summary
+    $("emoSummaryText").textContent = summary;
   }
 
   // --- State Persistence ---

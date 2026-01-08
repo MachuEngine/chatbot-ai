@@ -218,11 +218,22 @@ def chat(req: ChatRequest):
         nlu2 = apply_session_rules(state, nlu, user_message, trace_id=trace_id)
         
         # [NEW] NLU 슬롯에서 톤 변경 감지 -> 세션에 반영
-        detected_tone = (nlu2.get("slots") or {}).get("tone_style")
-        if detected_tone:
-            state["tone_style"] = detected_tone
-            state["persona"] = detected_tone # NLU가 감지한 톤을 페르소나에도 반영
-            log_event(trace_id, "state_update_tone", {"new_tone": detected_tone})
+        detected_tone = None
+        if nlu2.get("domain") == "education":
+            # 스키마에는 'tone_style'이 없고 'style'이나 'tone'이 있습니다.
+            slots = nlu2.get("slots") or {}
+            
+            # style 우선, 없으면 tone 확인
+            found_slot = slots.get("style") or slots.get("tone")
+            
+            if found_slot:
+                # Slot이 딕셔너리 형태일 경우 value 추출
+                val = found_slot.get("value") if isinstance(found_slot, dict) else found_slot
+                if val:
+                    detected_tone = val  # 여기서 할당
+                    state["tone_style"] = val
+                    # state["persona"] = val  # 필요시 주석 해제
+                    log_event(trace_id, "state_update_tone", {"new_tone": val})
 
         log_event(
             trace_id,

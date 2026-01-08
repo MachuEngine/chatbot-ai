@@ -69,12 +69,5 @@ COMPANION_SCHEMA = {
             "values": ["brief", "normal", "talkative"],
             "default": "normal"
         },
-
-        "mood_preset": {
-            "type": "enum",
-            "description": "사용자가 직접 설정하는 봇의 초기 기분 (감정 분석과 별개)",
-            "values": ["cheerful", "calm", "gloomy", "excited"],
-            "default": "cheerful"
-        }
     }
 }
